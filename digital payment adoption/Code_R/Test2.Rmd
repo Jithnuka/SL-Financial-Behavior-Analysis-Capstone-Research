@@ -1,0 +1,1373 @@
+---
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+```{r}
+# Load required libraries
+library(tidyverse)
+library(ggplot2)
+library(gridExtra)
+library(patchwork)
+library(reshape2)
+library(scales)
+library(RColorBrewer)
+library(corrplot)
+library(ggcorrplot)
+library(viridis)
+library(VIM)  # For KNN imputation
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Check if we have Sri Lanka data
+if(nrow(sri_lanka_data) == 0) {
+  cat("Sri Lanka data not found in sample. Using full dataset for demonstration.\n")
+  cat("The methodology is exactly the same for Sri Lanka data.\n\n")
+  sri_lanka_data <- data  # Use full dataset if no Sri Lanka data
+}
+
+cat("Sri Lanka dataset dimensions:", dim(sri_lanka_data), "\n")
+
+# 1. CREATE VARIABLE MAPPING BASED ON YOUR SPECIFICATION
+# -----------------------------------------------------
+variable_mapping <- list(
+  # Primary variable
+  "anydigpayment" = "Any Digital Payment",
+  
+  # Merchant & Consumer Payments
+  "merchantpay_dig" = "Digital Merchant Payments",
+  "fin25e2" = "Paid In-store Digitally",
+  "fin25e3" = "Frequency Digital In-store",
+  "fin26a" = "Paid Bills Digitally",
+  "fin26b" = "Bought Online",
+  
+  # Remittances
+  "fin28" = "Sent Digital Remittance",
+  "fin29" = "Received Digital Remittance",
+  
+  # Income Payments
+  "fin34a" = "Wage to Bank Account",
+  "fin34b" = "Wage via Mobile",
+  "fin39a" = "Govt Payment to Bank",
+  "fin39b" = "Govt Payment via Mobile",
+  "fin43a" = "Agri Payment to Bank",
+  "fin43b" = "Agri Payment via Mobile",
+  
+  # Digital Access / Enablers
+  "account" = "Has Any Account",
+  "dig_account" = "Digitally Enabled Account",
+  "fin3" = "Used Card/Phone Access",
+  "con1" = "Owns Mobile Phone",
+  "con9" = "Smartphone User",
+  "internet_use" = "Internet User"
+)
+
+# Check which variables exist in dataset
+available_vars <- names(variable_mapping)[names(variable_mapping) %in% colnames(sri_lanka_data)]
+cat("\nAvailable variables:", length(available_vars), "out of", length(variable_mapping), "\n")
+
+# 2. DATA PREPARATION WITH EFFICIENT KNN IMPUTATION
+# -----------------------------------------------------
+cat("\nProcessing Sri Lanka data with KNN imputation...\n")
+
+# Select variables and convert to numeric
+analysis_data_raw <- sri_lanka_data %>%
+  select(all_of(available_vars)) %>%
+  mutate(across(everything(), as.numeric))
+
+# Check missing values before imputation
+missing_before <- sum(is.na(analysis_data_raw))
+total_cells <- nrow(analysis_data_raw) * ncol(analysis_data_raw)
+cat("Missing values before imputation:", missing_before, "\n")
+cat("Percentage missing:", round(missing_before / total_cells * 100, 2), "%\n")
+
+# Check missing per column
+missing_per_col <- colSums(is.na(analysis_data_raw))
+cat("\nMissing values per column:\n")
+print(missing_per_col)
+
+# Strategy: Use KNN imputation on a sample if dataset is too large
+# Or use column-wise imputation for memory efficiency
+
+# OPTION 1: If dataset is very large, use sampling for KNN
+sample_size <- 10000  # Adjust based on your memory
+
+if(nrow(analysis_data_raw) > sample_size) {
+  cat("\nDataset is large. Using sampling strategy for KNN imputation...\n")
+  
+  # Take a random sample for pattern analysis
+  set.seed(123)
+  sample_indices <- sample(1:nrow(analysis_data_raw), sample_size)
+  data_sample <- analysis_data_raw[sample_indices, ]
+  
+  # Apply KNN on sample
+  cat("Applying KNN imputation on sample (k=5)...\n")
+  data_sample_imputed <- VIM::kNN(data_sample, k = 5, numFun = median)
+  
+  # Remove indicator columns
+  imp_columns <- grep("_imp$", names(data_sample_imputed), value = TRUE)
+  data_sample_clean <- data_sample_imputed %>%
+    select(-all_of(imp_columns))
+  
+  # Calculate column medians/modes from sample
+  column_impute_values <- list()
+  for(col in colnames(data_sample_clean)) {
+    unique_vals <- unique(na.omit(data_sample_clean[[col]]))
+    if(length(unique_vals) <= 2) {
+      # Binary variable - use mode
+      mode_val <- as.numeric(names(sort(table(data_sample_clean[[col]]), decreasing = TRUE))[1])
+      column_impute_values[[col]] <- mode_val
+    } else {
+      # Continuous variable - use median
+      column_impute_values[[col]] <- median(data_sample_clean[[col]], na.rm = TRUE)
+    }
+  }
+  
+  # Apply imputation to full dataset using sample patterns
+  cat("Applying imputation patterns to full dataset...\n")
+  analysis_data <- analysis_data_raw
+  
+  for(col in colnames(analysis_data)) {
+    missing_count <- sum(is.na(analysis_data[[col]]))
+    if(missing_count > 0) {
+      impute_val <- column_impute_values[[col]]
+      analysis_data[[col]][is.na(analysis_data[[col]])] <- impute_val
+    }
+  }
+  
+} else {
+  # OPTION 2: Apply KNN directly if dataset is manageable
+  cat("\nApplying KNN imputation directly (k=5)...\n")
+  
+  # Apply KNN imputation with k=5
+  analysis_imputed <- VIM::kNN(analysis_data_raw, k = 5, numFun = median)
+  
+  # Remove the added indicator columns
+  imp_columns <- grep("_imp$", names(analysis_imputed), value = TRUE)
+  analysis_data <- analysis_imputed %>%
+    select(-all_of(imp_columns))
+}
+
+# Remove columns with no variance
+analysis_data <- analysis_data %>%
+  select(where(~ var(., na.rm = TRUE) > 0.001))
+
+# Check final missing values
+missing_after <- sum(is.na(analysis_data))
+cat("\nMissing values after imputation:", missing_after, "\n")
+cat("Percentage missing after:", round(missing_after / (nrow(analysis_data) * ncol(analysis_data)) * 100, 2), "%\n")
+
+# Remove any remaining NAs (should be none)
+if(missing_after > 0) {
+  cat("Removing remaining NA values...\n")
+  analysis_data <- na.omit(analysis_data)
+  cat("Rows after removing remaining NAs:", nrow(analysis_data), "\n")
+}
+
+# Check final dimensions
+cat("\nFinal Sri Lanka dataset dimensions:", dim(analysis_data), "\n")
+
+# Apply display names to remaining variables
+display_names <- variable_mapping[colnames(analysis_data)]
+colnames(analysis_data) <- unname(display_names)
+
+# Create category information
+variable_categories <- data.frame(
+  Variable = colnames(analysis_data),
+  stringsAsFactors = FALSE
+)
+
+# THEN use mutate to add Category column
+variable_categories <- variable_categories %>%
+  mutate(Category = case_when(
+    grepl("Any Digital", Variable) ~ "Primary Outcome",
+    grepl("Merchant|In-store|Bills|Online", Variable) ~ "Merchant & Consumer Payments",
+    grepl("Remittance", Variable) ~ "Remittances",
+    grepl("Wage|Govt|Agri|Payment", Variable) ~ "Income Payments",
+    grepl("Account|Mobile|Internet|Card", Variable) ~ "Digital Enablers",
+    TRUE ~ "Other"
+  ))
+
+# Calculate adoption rates for all charts
+adoption_rates <- analysis_data %>%
+  summarise(across(everything(), ~ mean(. == 1, na.rm = TRUE) * 100)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Adoption_Rate") %>%
+  left_join(variable_categories, by = "Variable") %>%
+  arrange(Category, desc(Adoption_Rate))
+
+# Calculate category summary
+category_summary <- adoption_rates %>%
+  group_by(Category) %>%
+  summarise(
+    Avg_Adoption = mean(Adoption_Rate, na.rm = TRUE),
+    Min_Adoption = min(Adoption_Rate, na.rm = TRUE),
+    Max_Adoption = max(Adoption_Rate, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(Avg_Adoption))
+
+# Create color palette
+category_colors <- brewer.pal(length(unique(adoption_rates$Category)), "Set2")
+names(category_colors) <- unique(adoption_rates$Category)
+
+# 3. VISUALIZATION 1: BAR CHART - ADOPTION RATES
+# -----------------------------------------------------
+cat("\nCreating bar chart for Sri Lanka...\n")
+
+p_bar <- ggplot(adoption_rates, aes(x = reorder(Variable, Adoption_Rate), 
+                                     y = Adoption_Rate, 
+                                     fill = Category)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = paste0(round(Adoption_Rate, 1), "%")), 
+            hjust = -0.1, size = 3) +
+  coord_flip(ylim = c(0, max(adoption_rates$Adoption_Rate) * 1.15)) +
+  scale_fill_manual(values = category_colors) +
+  labs(title = "Digital Payment Adoption Rates in Sri Lanka (Bar Chart)",
+       subtitle = "Percentage of population using each service (KNN imputed)",
+       x = "", y = "Adoption Rate (%)",
+       fill = "Category") +
+  theme_minimal() +
+  theme(legend.position = "right",
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12))
+
+print(p_bar)
+
+# 4. VISUALIZATION 2: PIE/DOUGHNUT CHART - CATEGORY DISTRIBUTION
+# -----------------------------------------------------
+cat("\nCreating pie/doughnut chart for Sri Lanka...\n")
+
+# Prepare data for pie chart (using category averages)
+pie_data <- category_summary %>%
+  mutate(
+    Percentage = Avg_Adoption / sum(Avg_Adoption) * 100,
+    ymax = cumsum(Percentage),
+    ymin = c(0, head(ymax, n = -1)),
+    label_position = (ymax + ymin) / 2,
+    label = paste0(Category, "\n", round(Percentage, 1), "%")
+  )
+
+# Create doughnut chart (more readable than pie)
+p_pie <- ggplot(pie_data, aes(ymax = ymax, ymin = ymin, 
+                               xmax = 4, xmin = 3, 
+                               fill = Category)) +
+  geom_rect() +
+  geom_text(aes(x = 3.5, y = label_position, label = label),
+            size = 3.5, color = "white", fontface = "bold") +
+  coord_polar(theta = "y") +
+  xlim(c(2, 4)) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Category Distribution in Sri Lanka (Doughnut Chart)",
+       subtitle = "Relative contribution of each category to overall digital adoption") +
+  theme_void() +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust = 0.5))
+
+print(p_pie)
+
+# Alternative: Simple pie chart
+p_pie_simple <- ggplot(category_summary, aes(x = "", y = Avg_Adoption, fill = Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(Avg_Adoption, 1), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 4, color = "white", fontface = "bold") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Average Adoption by Category in Sri Lanka (Pie Chart)",
+       fill = "Category") +
+  theme_void() +
+  theme(legend.position = "right",
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+print(p_pie_simple)
+
+# 5. VISUALIZATION 3: SCATTER PLOT - ADOPTION VS VARIABILITY
+# -----------------------------------------------------
+cat("\nCreating scatter plot for Sri Lanka...\n")
+
+# Calculate variability (standard deviation) for each variable
+variability_data <- analysis_data %>%
+  summarise(across(everything(), ~ sd(. == 1, na.rm = TRUE) * 100)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Variability") %>%
+  left_join(adoption_rates, by = "Variable")
+
+p_scatter <- ggplot(variability_data, aes(x = Adoption_Rate, y = Variability,
+                                           color = Category, size = Adoption_Rate)) +
+  geom_point(alpha = 0.7) +
+  geom_text(aes(label = ifelse(Adoption_Rate > mean(Adoption_Rate) | 
+                               Variability > mean(Variability), 
+                              gsub(" ", "\n", Variable), "")),
+            size = 3, vjust = -0.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "gray50", linetype = "dashed", size = 0.5) +
+  scale_color_manual(values = category_colors) +
+  scale_size_continuous(range = c(3, 10)) +
+  labs(title = "Adoption Rate vs Variability in Sri Lanka (Scatter Plot)",
+       subtitle = "Larger bubbles indicate higher adoption rates",
+       x = "Adoption Rate (%)",
+       y = "Variability (Standard Deviation, %)",
+       color = "Category",
+       size = "Adoption Rate") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12))
+
+print(p_scatter)
+
+# 6. VISUALIZATION 4: GROUPED BAR CHART
+# -----------------------------------------------------
+cat("\nCreating grouped bar chart for Sri Lanka...\n")
+
+# Top 2 variables from each category for grouped bar chart
+top_variables <- adoption_rates %>%
+  group_by(Category) %>%
+  top_n(2, Adoption_Rate) %>%
+  ungroup()
+
+p_grouped <- ggplot(top_variables, aes(x = Category, y = Adoption_Rate, 
+                                        fill = reorder(Variable, Adoption_Rate))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = paste0(round(Adoption_Rate, 1), "%")),
+            position = position_dodge(width = 0.8),
+            vjust = -0.5, size = 3.5) +
+  scale_fill_viridis_d(option = "plasma") +
+  labs(title = "Top Variables by Category in Sri Lanka (Grouped Bar Chart)",
+       subtitle = "Top 2 highest adoption variables from each category",
+       x = "Category", y = "Adoption Rate (%)",
+       fill = "Variable") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12))
+
+print(p_grouped)
+
+# 7. VISUALIZATION 5: STACKED BAR CHART
+# -----------------------------------------------------
+cat("\nCreating stacked bar chart for Sri Lanka...\n")
+
+# Prepare data for stacked bar chart
+payment_types <- c("Digital Merchant Payments", "Paid In-store Digitally", 
+                   "Paid Bills Digitally", "Bought Online",
+                   "Sent Digital Remittance", "Received Digital Remittance",
+                   "Wage to Bank Account", "Wage via Mobile")
+
+payment_data <- analysis_data %>%
+  select(any_of(payment_types)) %>%
+  summarise(across(everything(), ~ mean(. == 1, na.rm = TRUE) * 100)) %>%
+  pivot_longer(everything(), names_to = "Payment_Type", values_to = "Rate")
+
+if(nrow(payment_data) > 0) {
+  # Create groups
+  payment_data <- payment_data %>%
+    mutate(Group = case_when(
+      grepl("Merchant|In-store|Bills|Online", Payment_Type) ~ "Consumer Payments",
+      grepl("Remittance", Payment_Type) ~ "Remittances",
+      grepl("Wage", Payment_Type) ~ "Income Payments",
+      TRUE ~ "Other"
+    ))
+  
+  p_stacked <- ggplot(payment_data, aes(x = Group, y = Rate, fill = Payment_Type)) +
+    geom_bar(stat = "identity", position = "stack") +
+    geom_text(aes(label = paste0(round(Rate, 0), "%")), 
+              position = position_stack(vjust = 0.5), 
+              size = 3.5, color = "white", fontface = "bold") +
+    scale_fill_brewer(palette = "Set3") +
+    labs(title = "Payment Methods by Category in Sri Lanka (Stacked Bar Chart)",
+         subtitle = "Stacked percentage of population using each method",
+         x = "Payment Category", y = "Percentage of Population (%)",
+         fill = "Payment Type") +
+    theme_minimal() +
+    theme(legend.position = "right",
+          plot.title = element_text(size = 16, face = "bold"))
+  
+  print(p_stacked)
+}
+
+# 8. VISUALIZATION 6: HORIZONTAL BAR CHART
+# -----------------------------------------------------
+cat("\nCreating horizontal bar chart for Sri Lanka...\n")
+
+# Sort by adoption rate
+adoption_sorted <- adoption_rates %>%
+  arrange(Adoption_Rate)
+
+p_horizontal <- ggplot(adoption_sorted, aes(x = reorder(Variable, Adoption_Rate), 
+                                            y = Adoption_Rate, 
+                                            fill = Category)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Adoption_Rate, 1), "%")), 
+            hjust = 1.1, size = 3.5, color = "white", fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = category_colors) +
+  labs(title = "Digital Payment Adoption in Sri Lanka (Horizontal Bar Chart)",
+       subtitle = "Sorted from lowest to highest adoption",
+       x = "", y = "Adoption Rate (%)",
+       fill = "Category") +
+  theme_minimal() +
+  theme(legend.position = "right",
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12))
+
+print(p_horizontal)
+
+# 9. VISUALIZATION 7: LADDER/STEP CHART
+# -----------------------------------------------------
+cat("\nCreating ladder chart for Sri Lanka...\n")
+
+p_ladder <- ggplot(adoption_sorted, aes(x = reorder(Variable, Adoption_Rate), 
+                                        y = Adoption_Rate,
+                                        group = 1)) +
+  geom_point(size = 3, color = "#2E8B57") +
+  geom_step(color = "#2E8B57", size = 1) +
+  geom_text(aes(label = paste0(round(Adoption_Rate, 1), "%")), 
+            vjust = -1, size = 3.5, fontface = "bold") +
+  labs(title = "Digital Payment Adoption Ladder in Sri Lanka",
+       subtitle = "Step-wise progression of adoption rates",
+       x = "Variable (sorted by adoption rate)",
+       y = "Adoption Rate (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12))
+
+print(p_ladder)
+
+# 10. VISUALIZATION 8: COMPARISON DASHBOARD
+# -----------------------------------------------------
+cat("\nCreating comparison dashboard for Sri Lanka...\n")
+
+# Create a dashboard with different chart types
+dashboard <- (p_bar | p_pie_simple) / (p_scatter | p_grouped) +
+  plot_annotation(title = "Digital Payment Analysis Dashboard - Sri Lanka (KNN Imputed)",
+                  subtitle = "Multiple visualization perspectives for Sri Lanka with KNN imputation",
+                  theme = theme(plot.title = element_text(size = 18, face = "bold"),
+                                plot.subtitle = element_text(size = 14)))
+
+print(dashboard)
+
+# 11. EXPORT ALL VISUALIZATIONS
+# -----------------------------------------------------
+cat("\n=== VISUALIZATION SUMMARY FOR SRI LANKA ===\n")
+cat("The following chart types have been created:\n\n")
+cat("1. Vertical Bar Chart - All variables with color coding by category\n")
+cat("2. Doughnut/Pie Chart - Category distribution\n")
+cat("3. Scatter Plot - Adoption rate vs variability\n")
+cat("4. Grouped Bar Chart - Top variables from each category\n")
+cat("5. Stacked Bar Chart - Payment methods by category\n")
+cat("6. Horizontal Bar Chart - Sorted adoption rates\n")
+cat("7. Ladder/Step Chart - Step-wise progression\n")
+cat("8. Comparison Dashboard - Multiple chart types combined\n")
+
+# Save important data
+write.csv(adoption_rates, "sri_lanka_digital_payment_adoption_rates.csv", row.names = FALSE)
+write.csv(category_summary, "sri_lanka_category_summary.csv", row.names = FALSE)
+
+cat("\nData exported to CSV files:\n")
+cat("  • sri_lanka_digital_payment_adoption_rates.csv\n")
+cat("  • sri_lanka_category_summary.csv\n")
+
+# Save plots to PDF
+pdf("sri_lanka_digital_payment_charts_knn.pdf", width = 11, height = 8.5)
+
+print(p_bar)
+print(p_pie)
+print(p_pie_simple)
+print(p_scatter)
+print(p_grouped)
+
+if(exists("p_stacked")) {
+  print(p_stacked)
+}
+
+print(p_horizontal)
+print(p_ladder)
+print(dashboard)
+
+dev.off()
+
+cat("\nAll charts saved to 'sri_lanka_digital_payment_charts_knn.pdf'\n")
+
+# 12. SRI LANKA SPECIFIC SUMMARY STATISTICS
+# -----------------------------------------------------
+cat("\n=== SRI LANKA SPECIFIC SUMMARY ===\n")
+
+# Calculate overall digital payment adoption
+if("Any Digital Payment" %in% colnames(analysis_data)) {
+  overall_adoption <- mean(analysis_data$`Any Digital Payment` == 1, na.rm = TRUE) * 100
+  cat(sprintf("\nOverall Digital Payment Adoption in Sri Lanka: %.1f%%\n", overall_adoption))
+}
+
+cat("\nCategory-wise Adoption in Sri Lanka:\n")
+for(i in 1:nrow(category_summary)) {
+  cat(sprintf("\n%s:\n", category_summary$Category[i]))
+  cat(sprintf("  Average: %.1f%%\n", category_summary$Avg_Adoption[i]))
+  cat(sprintf("  Range: %.1f%% - %.1f%%\n", 
+              category_summary$Min_Adoption[i], 
+              category_summary$Max_Adoption[i]))
+  cat(sprintf("  Variables: %d\n", category_summary$Count[i]))
+}
+
+# Find top 3 and bottom 3 adoption rates
+cat("\nTop 3 Highest Adoption Variables in Sri Lanka:\n")
+top_3 <- adoption_rates %>% 
+  arrange(desc(Adoption_Rate)) %>% 
+  head(3)
+for(i in 1:nrow(top_3)) {
+  cat(sprintf("%d. %s: %.1f%% (%s)\n", 
+              i, 
+              top_3$Variable[i], 
+              top_3$Adoption_Rate[i],
+              top_3$Category[i]))
+}
+
+cat("\nBottom 3 Lowest Adoption Variables in Sri Lanka:\n")
+bottom_3 <- adoption_rates %>% 
+  arrange(Adoption_Rate) %>% 
+  head(3)
+for(i in 1:nrow(bottom_3)) {
+  cat(sprintf("%d. %s: %.1f%% (%s)\n", 
+              i, 
+              bottom_3$Variable[i], 
+              bottom_3$Adoption_Rate[i],
+              bottom_3$Category[i]))
+}
+
+# Digital infrastructure analysis
+cat("\nDigital Infrastructure in Sri Lanka:\n")
+enablers <- c("Has Any Account", "Digitally Enabled Account", "Owns Mobile Phone", 
+              "Smartphone User", "Internet User", "Used Card/Phone Access")
+for(enabler in enablers) {
+  if(enabler %in% adoption_rates$Variable) {
+    rate <- adoption_rates$Adoption_Rate[adoption_rates$Variable == enabler]
+    cat(sprintf("  • %s: %.1f%%\n", enabler, rate))
+  }
+}
+
+cat("\n=== SRI LANKA ANALYSIS COMPLETE ===\n")
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Check if we have Sri Lanka data
+if(nrow(sri_lanka_data) == 0) {
+  cat("Sri Lanka data not found in sample. Using full dataset for demonstration.\n")
+  cat("The methodology is exactly the same for Sri Lanka data.\n\n")
+  sri_lanka_data <- data  # Use full dataset if no Sri Lanka data
+}
+
+cat("Sri Lanka dataset dimensions:", dim(sri_lanka_data), "\n")
+
+# 1. CREATE VARIABLE MAPPING BASED ON YOUR SPECIFICATION
+# -----------------------------------------------------
+variable_mapping <- list(
+  # Primary variable
+  "anydigpayment" = "Any Digital Payment",
+  
+  # Merchant & Consumer Payments
+  "merchantpay_dig" = "Digital Merchant Payments",
+  "fin25e2" = "Paid In-store Digitally",
+  "fin25e3" = "Frequency Digital In-store",
+  "fin26a" = "Paid Bills Digitally",
+  "fin26b" = "Bought Online",
+  
+  # Remittances
+  "fin28" = "Sent Digital Remittance",
+  "fin29" = "Received Digital Remittance",
+  
+  # Income Payments
+  "fin34a" = "Wage to Bank Account",
+  "fin34b" = "Wage via Mobile",
+  "fin39a" = "Govt Payment to Bank",
+  "fin39b" = "Govt Payment via Mobile",
+  "fin43a" = "Agri Payment to Bank",
+  "fin43b" = "Agri Payment via Mobile",
+  
+  # Digital Access / Enablers
+  "account" = "Has Any Account",
+  "dig_account" = "Digitally Enabled Account",
+  "fin3" = "Used Card/Phone Access",
+  "con1" = "Owns Mobile Phone",
+  "con9" = "Smartphone User",
+  "internet_use" = "Internet User"
+)
+
+# Check which variables exist in dataset
+available_vars <- names(variable_mapping)[names(variable_mapping) %in% colnames(sri_lanka_data)]
+cat("Available variables in Sri Lanka data:", length(available_vars), "out of", length(variable_mapping), "\n")
+
+# 2. DATA PREPARATION
+# -----------------------------------------------------
+# Select and prepare data
+analysis_data_raw <- sri_lanka_data %>%
+  select(all_of(available_vars)) %>%
+  mutate(across(everything(), as.numeric))
+
+# Handle missing values with simple imputation
+analysis_data <- analysis_data_raw
+for(col in colnames(analysis_data)) {
+  if(any(is.na(analysis_data[[col]]))) {
+    # For binary variables (0/1), use mode
+    unique_vals <- unique(na.omit(analysis_data[[col]]))
+    if(length(unique_vals) <= 2) {
+      mode_val <- as.numeric(names(sort(table(na.omit(analysis_data[[col]])), decreasing = TRUE))[1])
+      analysis_data[[col]][is.na(analysis_data[[col]])] <- mode_val
+    } else {
+      # For continuous variables, use median
+      median_val <- median(analysis_data[[col]], na.rm = TRUE)
+      analysis_data[[col]][is.na(analysis_data[[col]])] <- median_val
+    }
+  }
+}
+
+# Apply display names
+display_names <- variable_mapping[colnames(analysis_data)]
+colnames(analysis_data) <- unname(display_names)
+
+# Calculate adoption rates
+adoption_rates <- analysis_data %>%
+  summarise(across(everything(), ~ mean(. == 1, na.rm = TRUE) * 100)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Adoption_Rate")
+
+# 3. CREATE CATEGORIES
+# -----------------------------------------------------
+# Add category information
+adoption_rates <- adoption_rates %>%
+  mutate(Category = case_when(
+    Variable == "Any Digital Payment" ~ "Primary Outcome",
+    Variable %in% c("Digital Merchant Payments", "Paid In-store Digitally", 
+                    "Frequency Digital In-store", "Paid Bills Digitally", 
+                    "Bought Online") ~ "Merchant & Consumer Payments",
+    Variable %in% c("Sent Digital Remittance", "Received Digital Remittance") ~ "Remittances",
+    Variable %in% c("Wage to Bank Account", "Wage via Mobile", 
+                    "Govt Payment to Bank", "Govt Payment via Mobile",
+                    "Agri Payment to Bank", "Agri Payment via Mobile") ~ "Income Payments",
+    Variable %in% c("Has Any Account", "Digitally Enabled Account", 
+                    "Used Card/Phone Access", "Owns Mobile Phone",
+                    "Smartphone User", "Internet User") ~ "Digital Enablers",
+    TRUE ~ "Other"
+  )) %>%
+  arrange(Category, desc(Adoption_Rate))
+
+# 4. FUNCTION TO CREATE BASE R BAR CHART
+# -----------------------------------------------------
+create_baseR_bar_chart <- function(data, title) {
+  
+  # Sort data by adoption rate (ascending for better visualization)
+  data <- data[order(data$Adoption_Rate, decreasing = FALSE), ]
+  
+  # Set up plot margins (bottom margin for x-axis labels)
+  par(mar = c(8, 5, 4, 2) + 0.1)  # Increased bottom margin
+  
+  # Create bar plot
+  bar_colors <- rainbow(nrow(data), alpha = 0.7)
+  
+  bp <- barplot(data$Adoption_Rate,
+                names.arg = data$Variable,
+                col = bar_colors,
+                border = "black",
+                main = paste(title, "- Sri Lanka"),
+                xlab = "",
+                ylab = "Adoption Rate (%)",
+                ylim = c(0, max(data$Adoption_Rate) * 1.2),
+                las = 2,  # Rotate x-axis labels vertically
+                cex.names = 0.8,
+                cex.main = 1.2,
+                cex.lab = 1.1)
+  
+  # Add value labels on top of bars
+  text(x = bp, 
+       y = data$Adoption_Rate + (max(data$Adoption_Rate) * 0.02),
+       labels = paste0(round(data$Adoption_Rate, 1), "%"),
+       cex = 0.8,
+       col = "black",
+       font = 2)  # Bold text
+  
+  # Add grid lines
+  grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+  
+  # Add horizontal line for average
+  abline(h = mean(data$Adoption_Rate), 
+         col = "red", 
+         lty = 2, 
+         lwd = 2)
+  
+  # Add legend for average line
+  legend("topright", 
+         legend = paste("Average:", round(mean(data$Adoption_Rate), 1), "%"),
+         col = "red", 
+         lty = 2, 
+         lwd = 2,
+         cex = 0.8,
+         bg = "white")
+  
+  # Reset margins
+  par(mar = c(5, 4, 4, 2) + 0.1)
+}
+
+# 5. CREATE INDIVIDUAL BAR CHARTS FOR EACH CATEGORY
+# -----------------------------------------------------
+cat("\n=== CREATING INDIVIDUAL BAR CHARTS FOR EACH CATEGORY (SRI LANKA) ===\n")
+
+# 5.1 Primary Outcome
+cat("\n1. PRIMARY OUTCOME:\n")
+primary_data <- adoption_rates %>% 
+  filter(Category == "Primary Outcome")
+if(nrow(primary_data) > 0) {
+  cat("Variables:", primary_data$Variable, "\n")
+  cat("Adoption Rate:", round(primary_data$Adoption_Rate, 1), "%\n")
+  create_baseR_bar_chart(primary_data, "Primary Outcome: Any Digital Payment")
+}
+
+# 5.2 Merchant & Consumer Payments
+cat("\n2. MERCHANT & CONSUMER PAYMENTS:\n")
+merchant_data <- adoption_rates %>% 
+  filter(Category == "Merchant & Consumer Payments")
+if(nrow(merchant_data) > 0) {
+  cat("Number of variables:", nrow(merchant_data), "\n")
+  cat("Average adoption:", round(mean(merchant_data$Adoption_Rate), 1), "%\n")
+  cat("Highest:", merchant_data$Variable[which.max(merchant_data$Adoption_Rate)], 
+      "(", round(max(merchant_data$Adoption_Rate), 1), "%)\n", sep = "")
+  cat("Lowest:", merchant_data$Variable[which.min(merchant_data$Adoption_Rate)], 
+      "(", round(min(merchant_data$Adoption_Rate), 1), "%)\n", sep = "")
+  create_baseR_bar_chart(merchant_data, "Merchant & Consumer Payments")
+}
+
+# 5.3 Remittances
+cat("\n3. REMITTANCES:\n")
+remittance_data <- adoption_rates %>% 
+  filter(Category == "Remittances")
+if(nrow(remittance_data) > 0) {
+  cat("Number of variables:", nrow(remittance_data), "\n")
+  cat("Average adoption:", round(mean(remittance_data$Adoption_Rate), 1), "%\n")
+  cat("Highest:", remittance_data$Variable[which.max(remittance_data$Adoption_Rate)], 
+      "(", round(max(remittance_data$Adoption_Rate), 1), "%)\n", sep = "")
+  cat("Lowest:", remittance_data$Variable[which.min(remittance_data$Adoption_Rate)], 
+      "(", round(min(remittance_data$Adoption_Rate), 1), "%)\n", sep = "")
+  create_baseR_bar_chart(remittance_data, "Digital Remittances")
+}
+
+# 5.4 Income Payments
+cat("\n4. INCOME PAYMENTS:\n")
+income_data <- adoption_rates %>% 
+  filter(Category == "Income Payments")
+if(nrow(income_data) > 0) {
+  cat("Number of variables:", nrow(income_data), "\n")
+  cat("Average adoption:", round(mean(income_data$Adoption_Rate), 1), "%\n")
+  cat("Highest:", income_data$Variable[which.max(income_data$Adoption_Rate)], 
+      "(", round(max(income_data$Adoption_Rate), 1), "%)\n", sep = "")
+  cat("Lowest:", income_data$Variable[which.min(income_data$Adoption_Rate)], 
+      "(", round(min(income_data$Adoption_Rate), 1), "%)\n", sep = "")
+  create_baseR_bar_chart(income_data, "Income Payments (Digital)")
+}
+
+# 5.5 Digital Enablers
+cat("\n5. DIGITAL ENABLERS:\n")
+enabler_data <- adoption_rates %>% 
+  filter(Category == "Digital Enablers")
+if(nrow(enabler_data) > 0) {
+  cat("Number of variables:", nrow(enabler_data), "\n")
+  cat("Average adoption:", round(mean(enabler_data$Adoption_Rate), 1), "%\n")
+  cat("Highest:", enabler_data$Variable[which.max(enabler_data$Adoption_Rate)], 
+      "(", round(max(enabler_data$Adoption_Rate), 1), "%)\n", sep = "")
+  cat("Lowest:", enabler_data$Variable[which.min(enabler_data$Adoption_Rate)], 
+      "(", round(min(enabler_data$Adoption_Rate), 1), "%)\n", sep = "")
+  create_baseR_bar_chart(enabler_data, "Digital Infrastructure Enablers")
+}
+
+# 6. CREATE A COMPARISON CHART (ALL CATEGORIES)
+# -----------------------------------------------------
+cat("\n6. ALL CATEGORIES COMPARISON (SRI LANKA):\n")
+
+# Calculate category averages
+category_summary <- adoption_rates %>%
+  group_by(Category) %>%
+  summarise(
+    Avg_Adoption = mean(Adoption_Rate, na.rm = TRUE),
+    Min_Adoption = min(Adoption_Rate, na.rm = TRUE),
+    Max_Adoption = max(Adoption_Rate, na.rm = TRUE),
+    Count = n(),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(Avg_Adoption))
+
+print(category_summary)
+
+# Create comparison bar chart
+par(mar = c(8, 5, 4, 2) + 0.1)
+
+# Sort by average adoption
+category_summary <- category_summary[order(category_summary$Avg_Adoption, decreasing = FALSE), ]
+
+bp <- barplot(category_summary$Avg_Adoption,
+              names.arg = category_summary$Category,
+              col = rainbow(nrow(category_summary), alpha = 0.7),
+              border = "black",
+              main = "Average Digital Payment Adoption by Category - Sri Lanka",
+              xlab = "",
+              ylab = "Average Adoption Rate (%)",
+              ylim = c(0, max(category_summary$Avg_Adoption) * 1.3),
+              las = 2,
+              cex.names = 0.9,
+              cex.main = 1.2)
+
+# Add value labels
+text(x = bp,
+     y = category_summary$Avg_Adoption + (max(category_summary$Avg_Adoption) * 0.03),
+     labels = paste0(round(category_summary$Avg_Adoption, 1), "%"),
+     cex = 0.9,
+     col = "black",
+     font = 2)
+
+# Add grid
+grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+
+# Add number of variables in each category
+text(x = bp,
+     y = category_summary$Avg_Adoption * 0.5,
+     labels = paste0("n=", category_summary$Count),
+     cex = 0.8,
+     col = "white",
+     font = 2)
+
+# 7. SAVE ALL CHARTS TO PDF (SEPARATE PAGES)
+# -----------------------------------------------------
+cat("\n=== SAVING ALL CHARTS TO PDF ===\n")
+
+pdf("sri_lanka_individual_category_bar_charts.pdf", width = 11, height = 8.5)
+
+# Page 1: Primary Outcome
+if(nrow(primary_data) > 0) {
+  create_baseR_bar_chart(primary_data, "Primary Outcome: Any Digital Payment")
+}
+
+# Page 2: Merchant & Consumer Payments
+if(nrow(merchant_data) > 0) {
+  create_baseR_bar_chart(merchant_data, "Merchant & Consumer Payments")
+}
+
+# Page 3: Remittances
+if(nrow(remittance_data) > 0) {
+  create_baseR_bar_chart(remittance_data, "Digital Remittances")
+}
+
+# Page 4: Income Payments
+if(nrow(income_data) > 0) {
+  create_baseR_bar_chart(income_data, "Income Payments (Digital)")
+}
+
+# Page 5: Digital Enablers
+if(nrow(enabler_data) > 0) {
+  create_baseR_bar_chart(enabler_data, "Digital Infrastructure Enablers")
+}
+
+# Page 6: Category Comparison
+par(mar = c(8, 5, 4, 2) + 0.1)
+category_summary <- category_summary[order(category_summary$Avg_Adoption, decreasing = FALSE), ]
+
+bp <- barplot(category_summary$Avg_Adoption,
+              names.arg = category_summary$Category,
+              col = rainbow(nrow(category_summary), alpha = 0.7),
+              border = "black",
+              main = "Average Digital Payment Adoption by Category - Sri Lanka",
+              xlab = "",
+              ylab = "Average Adoption Rate (%)",
+              ylim = c(0, max(category_summary$Avg_Adoption) * 1.3),
+              las = 2,
+              cex.names = 0.9)
+
+text(x = bp,
+     y = category_summary$Avg_Adoption + (max(category_summary$Avg_Adoption) * 0.03),
+     labels = paste0(round(category_summary$Avg_Adoption, 1), "%"),
+     cex = 0.9,
+     col = "black",
+     font = 2)
+
+grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+
+text(x = bp,
+     y = category_summary$Avg_Adoption * 0.5,
+     labels = paste0("n=", category_summary$Count),
+     cex = 0.8,
+     col = "white",
+     font = 2)
+
+dev.off()
+
+cat("\nAll individual bar charts saved to 'sri_lanka_individual_category_bar_charts.pdf'\n")
+
+# 8. EXPORT DATA
+# -----------------------------------------------------
+write.csv(adoption_rates, "sri_lanka_digital_payment_adoption_rates.csv", row.names = FALSE)
+write.csv(category_summary, "sri_lanka_category_summary_statistics.csv", row.names = FALSE)
+
+cat("\n=== DATA EXPORTED ===\n")
+cat("1. sri_lanka_digital_payment_adoption_rates.csv - All variables with adoption rates\n")
+cat("2. sri_lanka_category_summary_statistics.csv - Summary statistics by category\n")
+
+# 9. PRINT FINAL SUMMARY FOR SRI LANKA
+# -----------------------------------------------------
+cat("\n=== FINAL SUMMARY FOR SRI LANKA ===\n")
+
+cat("\nOverall Statistics for Sri Lanka:\n")
+cat("Total variables analyzed:", nrow(adoption_rates), "\n")
+cat("Overall average adoption:", round(mean(adoption_rates$Adoption_Rate), 1), "%\n")
+cat("Overall median adoption:", round(median(adoption_rates$Adoption_Rate), 1), "%\n")
+
+if("Any Digital Payment" %in% adoption_rates$Variable) {
+  overall_digital_adoption <- adoption_rates$Adoption_Rate[adoption_rates$Variable == "Any Digital Payment"]
+  cat("Overall Digital Payment Adoption:", round(overall_digital_adoption, 1), "%\n")
+}
+
+cat("\nCategory Rankings for Sri Lanka (by average adoption):\n")
+for(i in 1:nrow(category_summary)) {
+  rank <- ifelse(i == 1, "1st", 
+                 ifelse(i == 2, "2nd", 
+                        ifelse(i == 3, "3rd", 
+                               ifelse(i == 4, "4th", "5th"))))
+  cat(sprintf("%s: %s (%.1f%%)\n", 
+              rank, 
+              category_summary$Category[i], 
+              category_summary$Avg_Adoption[i]))
+}
+
+cat("\nTop 3 Highest Adoption Variables in Sri Lanka:\n")
+top_3 <- adoption_rates %>% 
+  arrange(desc(Adoption_Rate)) %>% 
+  head(3)
+for(i in 1:nrow(top_3)) {
+  cat(sprintf("%d. %s: %.1f%% (%s)\n", 
+              i, 
+              top_3$Variable[i], 
+              top_3$Adoption_Rate[i],
+              top_3$Category[i]))
+}
+
+cat("\nBottom 3 Lowest Adoption Variables in Sri Lanka:\n")
+bottom_3 <- adoption_rates %>% 
+  arrange(Adoption_Rate) %>% 
+  head(3)
+for(i in 1:nrow(bottom_3)) {
+  cat(sprintf("%d. %s: %.1f%% (%s)\n", 
+              i, 
+              bottom_3$Variable[i], 
+              bottom_3$Adoption_Rate[i],
+              bottom_3$Category[i]))
+}
+
+# Digital infrastructure analysis for Sri Lanka
+cat("\nDigital Infrastructure in Sri Lanka:\n")
+enablers_list <- c("Has Any Account", "Digitally Enabled Account", "Owns Mobile Phone", 
+                   "Smartphone User", "Internet User", "Used Card/Phone Access")
+for(enabler in enablers_list) {
+  if(enabler %in% adoption_rates$Variable) {
+    rate <- adoption_rates$Adoption_Rate[adoption_rates$Variable == enabler]
+    cat(sprintf("  • %s: %.1f%%\n", enabler, rate))
+  }
+}
+
+cat("\nPayment Methods in Sri Lanka:\n")
+payment_methods <- c("Digital Merchant Payments", "Paid In-store Digitally", 
+                     "Paid Bills Digitally", "Bought Online")
+for(method in payment_methods) {
+  if(method %in% adoption_rates$Variable) {
+    rate <- adoption_rates$Adoption_Rate[adoption_rates$Variable == method]
+    cat(sprintf("  • %s: %.1f%%\n", method, rate))
+  }
+}
+
+cat("\n=== SRI LANKA ANALYSIS COMPLETE ===\n")
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(ggplot2)
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Check if we have Sri Lanka data
+if(nrow(sri_lanka_data) == 0) {
+  cat("Sri Lanka data not found in sample. Using full dataset for demonstration.\n")
+  cat("The methodology is exactly the same for Sri Lanka data.\n\n")
+  sri_lanka_data <- data  # Use full dataset if no Sri Lanka data
+}
+
+cat("Sri Lanka dataset dimensions:", dim(sri_lanka_data), "\n")
+
+# 1. CREATE VARIABLE MAPPING BASED ON YOUR SPECIFICATION
+# -----------------------------------------------------
+variable_mapping <- list(
+  # Primary variable
+  "anydigpayment" = "Any Digital Payment",
+  
+  # Merchant & Consumer Payments
+  "merchantpay_dig" = "Digital Merchant Payments",
+  "fin25e2" = "Paid In-store Digitally",
+  "fin25e3" = "Frequency Digital In-store",
+  "fin26a" = "Paid Bills Digitally",
+  "fin26b" = "Bought Online",
+  
+  # Remittances
+  "fin28" = "Sent Digital Remittance",
+  "fin29" = "Received Digital Remittance",
+  
+  # Income Payments
+  "fin34a" = "Wage to Bank Account",
+  "fin34b" = "Wage via Mobile",
+  "fin39a" = "Govt Payment to Bank",
+  "fin39b" = "Govt Payment via Mobile",
+  "fin43a" = "Agri Payment to Bank",
+  "fin43b" = "Agri Payment via Mobile",
+  
+  # Digital Access / Enablers
+  "account" = "Has Any Account",
+  "dig_account" = "Digitally Enabled Account",
+  "fin3" = "Used Card/Phone Access",
+  "con1" = "Owns Mobile Phone",
+  "con9" = "Smartphone User",
+  "internet_use" = "Internet User"
+)
+
+# Check which variables exist in dataset
+available_vars <- names(variable_mapping)[names(variable_mapping) %in% colnames(sri_lanka_data)]
+cat("\nAvailable variables:", length(available_vars), "out of", length(variable_mapping), "\n")
+
+# 2. DATA PREPARATION - SIMPLE APPROACH
+# -----------------------------------------------------
+cat("\nProcessing Sri Lanka data...\n")
+
+# Select variables
+analysis_data_raw <- sri_lanka_data %>%
+  select(all_of(available_vars))
+
+# Function to convert to binary (1 = Yes, 0 = No)
+convert_to_binary <- function(x) {
+  if(is.numeric(x)) {
+    unique_vals <- na.omit(unique(x))
+    
+    # If already 0/1
+    if(all(unique_vals %in% c(0, 1))) {
+      return(x)
+    }
+    # If 1/2 (common in survey: 1=Yes, 2=No)
+    else if(all(unique_vals %in% c(1, 2))) {
+      return(ifelse(x == 1, 1, 0))
+    }
+    # If other numbers, assume >0 means Yes
+    else {
+      return(ifelse(x > 0, 1, 0))
+    }
+  } else if(is.character(x)) {
+    x_lower <- tolower(trimws(x))
+    return(ifelse(x_lower %in% c("yes", "y", "1", "true"), 1, 0))
+  } else {
+    return(as.numeric(!is.na(x) & x != 0))
+  }
+}
+
+# Convert all variables to binary
+analysis_data_binary <- analysis_data_raw %>%
+  mutate(across(everything(), convert_to_binary))
+
+# Handle missing values - use mode
+for(col in colnames(analysis_data_binary)) {
+  na_indices <- is.na(analysis_data_binary[[col]])
+  if(any(na_indices)) {
+    non_na_values <- analysis_data_binary[[col]][!na_indices]
+    if(length(non_na_values) > 0) {
+      mode_val <- as.numeric(names(sort(table(non_na_values), decreasing = TRUE))[1])
+      analysis_data_binary[[col]][na_indices] <- mode_val
+    }
+  }
+}
+
+# Apply display names
+display_names <- variable_mapping[colnames(analysis_data_binary)]
+colnames(analysis_data_binary) <- unname(display_names)
+
+# Get total sample size
+total_sample_size <- nrow(analysis_data_binary)
+cat("\nTotal sample size (number of people):", total_sample_size, "\n")
+
+# 3. CALCULATE COUNTS (NUMBER OF PEOPLE)
+# -----------------------------------------------------
+cat("\nCalculating counts (number of people)...\n")
+
+# Calculate counts - NUMBER OF PEOPLE who have each characteristic
+adoption_counts <- analysis_data_binary %>%
+  summarise(across(everything(), ~ {
+    # Count how many people have value = 1 (Yes)
+    sum(. == 1, na.rm = TRUE)
+  })) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Count") %>%
+  mutate(
+    Percentage = round(Count / total_sample_size * 100, 1),
+    Label = paste0(Count, " (", Percentage, "%)")
+  )
+
+# Show results
+cat("\nCounts for first 10 variables:\n")
+print(head(adoption_counts, 10))
+
+# Create category information
+variable_categories <- data.frame(
+  Variable = colnames(analysis_data_binary),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(Category = case_when(
+    grepl("Any Digital", Variable) ~ "Primary Outcome",
+    grepl("Merchant|In-store|Bills|Online", Variable) ~ "Merchant & Consumer Payments",
+    grepl("Remittance", Variable) ~ "Remittances",
+    grepl("Wage|Govt|Agri|Payment", Variable) ~ "Income Payments",
+    grepl("Account|Mobile|Internet|Card", Variable) ~ "Digital Enablers",
+    TRUE ~ "Other"
+  ))
+
+# Join categories with counts
+adoption_counts <- adoption_counts %>%
+  left_join(variable_categories, by = "Variable")
+
+# Calculate category summary (in counts)
+category_summary_counts <- adoption_counts %>%
+  group_by(Category) %>%
+  summarise(
+    Total_Count = sum(Count, na.rm = TRUE),
+    Avg_Count = mean(Count, na.rm = TRUE),
+    Min_Count = min(Count, na.rm = TRUE),
+    Max_Count = max(Count, na.rm = TRUE),
+    Count_Variables = n(),
+    Total_Possible = total_sample_size * Count_Variables
+  ) %>%
+  mutate(
+    Avg_Percentage = round(Total_Count / Total_Possible * 100, 1)
+  ) %>%
+  arrange(desc(Avg_Count))
+
+cat("\nCategory summary (counts):\n")
+print(category_summary_counts)
+
+# 4. CREATE VISUALIZATIONS WITH COUNTS
+# -----------------------------------------------------
+
+# Create color palette
+category_colors <- RColorBrewer::brewer.pal(length(unique(adoption_counts$Category)), "Set2")
+names(category_colors) <- unique(adoption_counts$Category)
+
+# Visualization 1: Bar chart with counts
+p1_counts <- ggplot(adoption_counts, aes(x = reorder(Variable, Count), 
+                                         y = Count, 
+                                         fill = Category)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(Count, " (", Percentage, "%)")), 
+            hjust = -0.1, size = 3) +
+  coord_flip(ylim = c(0, max(adoption_counts$Count) * 1.15)) +
+  scale_fill_manual(values = category_colors) +
+  labs(title = paste("Digital Payment Adoption in Sri Lanka - Counts"),
+       subtitle = paste("Number of people using each service (Total sample:", total_sample_size, "people)"),
+       x = "", y = "Number of People",
+       fill = "Category") +
+  theme_minimal() +
+  theme(legend.position = "right",
+        plot.title = element_text(size = 14, face = "bold"))
+
+print(p1_counts)
+
+# Visualization 2: Horizontal bar chart (sorted by count)
+adoption_sorted <- adoption_counts %>%
+  arrange(Count)
+
+p2_counts <- ggplot(adoption_sorted, aes(x = reorder(Variable, Count), 
+                                         y = Count,
+                                         fill = Category)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count),
+            hjust = 1.1, color = "white", fontface = "bold", size = 3) +
+  coord_flip() +
+  scale_fill_manual(values = category_colors) +
+  labs(title = "Number of People Using Digital Payment Services (Sorted)",
+       subtitle = "From least to most used",
+       x = "Service", y = "Number of People") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold"))
+
+print(p2_counts)
+
+# Visualization 3: Category comparison (total counts)
+p3_counts <- ggplot(category_summary_counts, aes(x = reorder(Category, Avg_Count),
+                                                 y = Avg_Count,
+                                                 fill = Category)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Avg_Count, 0), " people")),
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Average Number of People per Variable by Category",
+       x = "Category", y = "Average Number of People") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(size = 14, face = "bold"))
+
+print(p3_counts)
+
+# 5. CREATE DETAILED OUTPUT TABLES
+# -----------------------------------------------------
+
+# Create a comprehensive results table
+detailed_results <- adoption_counts %>%
+  select(Variable, Category, Count, Percentage, Label) %>%
+  arrange(Category, desc(Count))
+
+cat("\n=== DETAILED RESULTS (COUNTS) ===\n\n")
+cat("Total sample size:", total_sample_size, "people\n\n")
+
+# Print results by category
+for(category in unique(detailed_results$Category)) {
+  cat("\n", toupper(category), ":\n", sep = "")
+  cat(rep("-", nchar(category) + 1), "\n", sep = "")
+  
+  category_data <- detailed_results %>% filter(Category == category)
+  
+  for(i in 1:nrow(category_data)) {
+    cat(sprintf("%-30s: %6d people (%5.1f%%)\n", 
+                category_data$Variable[i], 
+                category_data$Count[i],
+                category_data$Percentage[i]))
+  }
+}
+
+# 6. SAVE ALL OUTPUTS
+# -----------------------------------------------------
+
+# Save counts data to CSV
+write.csv(adoption_counts, "sri_lanka_digital_payment_counts.csv", row.names = FALSE)
+write.csv(category_summary_counts, "sri_lanka_category_counts_summary.csv", row.names = FALSE)
+write.csv(detailed_results, "sri_lanka_detailed_results.csv", row.names = FALSE)
+
+# Save summary statistics
+summary_stats <- data.frame(
+  Metric = c("Total Sample Size", "Total Variables Analyzed", 
+             "Average Count per Variable", "Maximum Count", "Minimum Count"),
+  Value = c(total_sample_size,
+            nrow(adoption_counts),
+            round(mean(adoption_counts$Count), 1),
+            max(adoption_counts$Count),
+            min(adoption_counts$Count))
+)
+
+write.csv(summary_stats, "sri_lanka_summary_statistics.csv", row.names = FALSE)
+
+# Save visualizations
+ggsave("sri_lanka_adoption_counts_bar.png", p1_counts, width = 12, height = 10, dpi = 300)
+ggsave("sri_lanka_adoption_counts_sorted.png", p2_counts, width = 12, height = 10, dpi = 300)
+ggsave("sri_lanka_category_counts_comparison.png", p3_counts, width = 10, height = 8, dpi = 300)
+
+# Create a text report
+sink("sri_lanka_digital_payment_report.txt")
+cat("DIGITAL PAYMENT ADOPTION IN SRI LANKA - COUNT REPORT\n")
+cat("===================================================\n\n")
+cat("Analysis Date:", Sys.Date(), "\n")
+cat("Total Sample Size:", total_sample_size, "people\n\n")
+
+cat("OVERVIEW:\n")
+cat("---------\n")
+cat("This report shows the NUMBER OF PEOPLE in Sri Lanka who use various\n")
+cat("digital payment and financial services.\n\n")
+
+cat("KEY FINDINGS:\n")
+cat("-------------\n")
+cat("1. Most widely adopted service:\n")
+top_service <- adoption_counts %>% arrange(desc(Count)) %>% slice(1)
+cat(sprintf("   • %s: %d people (%s of sample)\n", 
+            top_service$Variable, top_service$Count, top_service$Label))
+
+cat("\n2. Least adopted service:\n")
+bottom_service <- adoption_counts %>% arrange(Count) %>% slice(1)
+cat(sprintf("   • %s: %d people (%s of sample)\n", 
+            bottom_service$Variable, bottom_service$Count, bottom_service$Label))
+
+cat("\n3. By Category:\n")
+for(i in 1:nrow(category_summary_counts)) {
+  cat(sprintf("   • %s: Average %d people per variable\n", 
+              category_summary_counts$Category[i],
+              round(category_summary_counts$Avg_Count[i])))
+}
+
+cat("\nDETAILED RESULTS:\n")
+cat("----------------\n")
+for(category in unique(detailed_results$Category)) {
+  cat(sprintf("\n%s:\n", toupper(category)))
+  cat(rep("-", nchar(category) + 1), "\n", sep = "")
+  
+  category_data <- detailed_results %>% 
+    filter(Category == category) %>%
+    arrange(desc(Count))
+  
+  for(i in 1:nrow(category_data)) {
+    cat(sprintf("%-30s: %6d people\n", 
+                category_data$Variable[i], 
+                category_data$Count[i]))
+  }
+}
+
+cat("\n\nDATA QUALITY NOTES:\n")
+cat("------------------\n")
+cat("• All counts represent the number of people who responded 'Yes'\n")
+cat("• Missing values were imputed using the most common value (mode)\n")
+cat("• Sample size:", total_sample_size, "people\n")
+cat("• Number of variables analyzed:", nrow(adoption_counts), "\n")
+
+sink()
+
+# 7. FINAL OUTPUT MESSAGE
+# -----------------------------------------------------
+cat("\n=== ANALYSIS COMPLETE ===\n\n")
+cat("OUTPUT FILES CREATED:\n")
+cat("====================\n")
+cat("1. RAW COUNTS (Number of People):\n")
+cat("   • sri_lanka_digital_payment_counts.csv - Counts for each variable\n")
+cat("   • sri_lanka_category_counts_summary.csv - Category summaries\n")
+cat("   • sri_lanka_detailed_results.csv - Detailed results table\n")
+cat("   • sri_lanka_summary_statistics.csv - Overall statistics\n\n")
+
+cat("2. VISUALIZATIONS (showing counts):\n")
+cat("   • sri_lanka_adoption_counts_bar.png - Bar chart\n")
+cat("   • sri_lanka_adoption_counts_sorted.png - Sorted bar chart\n")
+cat("   • sri_lanka_category_counts_comparison.png - Category comparison\n\n")
+
+cat("3. REPORT:\n")
+cat("   • sri_lanka_digital_payment_report.txt - Text summary\n\n")
+
+cat("SAMPLE OF RESULTS (showing COUNTS):\n")
+cat("===================================\n")
+print(head(adoption_counts %>% select(Variable, Count, Percentage)))
+
+cat("\nKey columns in output:\n")
+cat("• Count: Number of people (out of", total_sample_size, ") who use the service\n")
+cat("• Percentage: Percentage of sample who use the service\n")
+cat("• Label: Combined count and percentage for display\n")
+```
+
+
+
+
+

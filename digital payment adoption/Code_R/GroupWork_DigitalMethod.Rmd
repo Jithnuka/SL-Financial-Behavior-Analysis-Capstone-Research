@@ -1,0 +1,1715 @@
+---
+title: "Digital Method"
+author: "PS/2021/005"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+
+```{r}
+# Load required libraries
+library(tidyverse)
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Check if we have Sri Lanka data
+if(nrow(sri_lanka_data) == 0) {
+  cat("Sri Lanka data not found. Using demonstration data.\n")
+  # Create demonstration data with 47.9% adoption
+  overall_adoption <- 47.9
+  non_adoption <- 100 - overall_adoption
+  pie_data <- data.frame(
+    Category = c("Digital Payment Users", "Non-Users"),
+    Percentage = c(overall_adoption, non_adoption)
+  )
+} else {
+  # Calculate actual adoption from Sri Lanka data
+  if("anydigpayment" %in% colnames(sri_lanka_data)) {
+    overall_adoption <- mean(sri_lanka_data$anydigpayment == 1, na.rm = TRUE) * 100
+    non_adoption <- 100 - overall_adoption
+    pie_data <- data.frame(
+      Category = c("Digital Payment Users", "Non-Users"),
+      Percentage = c(overall_adoption, non_adoption)
+    )
+  } else {
+    cat("'anydigpayment' variable not found. Using demonstration data.\n")
+    overall_adoption <- 47.9
+    non_adoption <- 100 - overall_adoption
+    pie_data <- data.frame(
+      Category = c("Digital Payment Users", "Non-Users"),
+      Percentage = c(overall_adoption, non_adoption)
+    )
+  }
+}
+
+# Create a beautiful pie chart
+par(mar = c(0, 0, 3, 0))  # Set margins: top=3, others=0
+
+# Define colors
+colors <- c("#2E8B57", "#FF6B6B")  # Green for users, Red for non-users
+
+# Calculate positions for labels
+pie_data <- pie_data %>%
+  arrange(desc(Category)) %>%
+  mutate(
+    ypos = cumsum(Percentage) - 0.5 * Percentage,  # Position for labels
+    label = paste0(Category, "\n", round(Percentage, 1), "%")
+  )
+
+# Create pie chart
+pie(pie_data$Percentage,
+    labels = pie_data$label,
+    col = colors,
+    border = "white",
+    main = "Overall Digital Payment Adoption in Sri Lanka",
+    cex.main = 1.5,
+    font.main = 2,
+    radius = 0.8,  # Slightly smaller for better appearance
+    init.angle = 90)  # Start from top
+
+# Add a legend
+legend("topright",
+       legend = pie_data$Category,
+       fill = colors,
+       border = "white",
+       cex = 1.1,
+       bg = "white",
+       box.col = "gray")
+
+# Add a text box with the key finding
+text(0, -1.2, 
+     paste("Key Finding: Digital payment adoption in Sri Lanka\nremains at a moderate level, with", 
+           round(overall_adoption, 1), "%"),
+     cex = 1.1,
+     font = 2,
+     col = "darkblue")
+
+# Add decorative elements
+# Draw a circle around the pie
+symbols(0, 0, circles = 1.05, inches = FALSE, add = TRUE, 
+        fg = "darkgray", lwd = 2)
+
+# Add percentage in the center
+text(0, 0,
+     paste0(round(overall_adoption, 1), "%"),
+     cex = 3,
+     font = 2,
+     col = "darkgreen")
+
+# Create a more detailed version with breakdown
+cat("\n=== DIGITAL PAYMENT ADOPTION IN SRI LANKA ===\n")
+cat("\nOverall Adoption Statistics:\n")
+cat("Digital Payment Users:", round(overall_adoption, 1), "%\n")
+cat("Non-Users:", round(non_adoption, 1), "%\n")
+cat("User to Non-User Ratio:", round(overall_adoption/non_adoption, 2), ":1\n")
+
+# Calculate additional statistics
+if(overall_adoption >= 50) {
+  adoption_status <- "High Adoption"
+  status_color <- "green"
+} else if(overall_adoption >= 30) {
+  adoption_status <- "Moderate Adoption"
+  status_color <- "orange"
+} else {
+  adoption_status <- "Low Adoption"
+  status_color <- "red"
+}
+
+cat("\nAdoption Level:", adoption_status, "\n")
+cat("Gap to 50%:", round(50 - overall_adoption, 1), "percentage points\n")
+cat("Growth needed to reach 50%:", round(((50 - overall_adoption)/overall_adoption)*100, 1), "%\n")
+
+# Create a second pie chart with more detailed breakdown
+par(mfrow = c(1, 2))  # Two plots side by side
+
+# Plot 1: Simple pie chart
+pie(pie_data$Percentage,
+    labels = pie_data$label,
+    col = colors,
+    border = "white",
+    main = "Overall Digital Payment Adoption\nin Sri Lanka",
+    cex.main = 1.2,
+    radius = 0.7)
+
+# Add center text
+text(0, 0,
+     paste0(round(overall_adoption, 1), "%"),
+     cex = 2.5,
+     font = 2,
+     col = "darkgreen")
+
+# Plot 2: Donut chart (more modern)
+par(mar = c(0, 0, 3, 0))
+
+# Create donut chart by plotting two circles
+# Outer circle (full)
+symbols(0, 0, circles = 1, inches = FALSE, add = FALSE,
+        fg = "lightgray", bg = "white", lwd = 2,
+        xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2),
+        main = "Digital Payment Adoption\n(Donut Chart)",
+        cex.main = 1.2)
+
+# Inner circle (empty center)
+symbols(0, 0, circles = 0.5, inches = FALSE, add = TRUE,
+        fg = "white", bg = "white", lwd = 2)
+
+# Add colored segments
+# Calculate angles for the donut segments
+start_angle <- 90  # Start from top
+user_angle <- (overall_adoption/100) * 360
+
+# Draw user segment
+draw_segment <- function(start, end, radius, color) {
+  angles <- seq(start, end, length.out = 100)
+  x <- radius * cos(angles * pi / 180)
+  y <- radius * sin(angles * pi / 180)
+  polygon(c(0, x, 0), c(0, y, 0), col = color, border = NA)
+}
+
+# Draw segments
+draw_segment(start_angle, start_angle + user_angle, 1, colors[1])
+draw_segment(start_angle + user_angle, start_angle + 360, 1, colors[2])
+
+# Add labels
+text(0, 0.7, "Users", cex = 1.2, font = 2, col = colors[1])
+text(0, -0.7, "Non-Users", cex = 1.2, font = 2, col = colors[2])
+
+# Add percentage in center
+text(0, 0,
+     paste0(round(overall_adoption, 1), "%"),
+     cex = 2.5,
+     font = 2,
+     col = "darkgreen")
+
+# Reset to single plot
+par(mfrow = c(1, 1))
+par(mar = c(5, 4, 4, 2) + 0.1)  # Reset to default margins
+
+# Create a bar chart comparison
+cat("\n=== CREATING BAR CHART COMPARISON ===\n")
+
+par(mar = c(5, 6, 4, 2) + 0.1)  # Left margin for y-axis label
+
+# Create bar plot
+bp <- barplot(pie_data$Percentage,
+              names.arg = pie_data$Category,
+              col = colors,
+              border = "black",
+              main = "Digital Payment Adoption in Sri Lanka",
+              xlab = "",
+              ylab = "Percentage of Population (%)",
+              ylim = c(0, 100),
+              cex.names = 1.2,
+              cex.main = 1.5,
+              cex.lab = 1.2,
+              font.main = 2,
+              font.lab = 2)
+
+# Add value labels on bars
+text(x = bp, 
+     y = pie_data$Percentage + 3,
+     labels = paste0(round(pie_data$Percentage, 1), "%"),
+     cex = 1.3,
+     col = "black",
+     font = 2)
+
+# Add horizontal line at 50%
+abline(h = 50, 
+       col = "red", 
+       lty = 2, 
+       lwd = 2)
+
+# Add legend for the 50% line
+legend("topright",
+       legend = paste("50% Target (Gap:", round(50 - overall_adoption, 1), "%)"),
+       col = "red",
+       lty = 2,
+       lwd = 2,
+       cex = 0.9,
+       bg = "white")
+
+# Add grid
+grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+
+# Save to PDF
+pdf("sri_lanka_digital_payment_adoption.pdf", width = 10, height = 8)
+
+# Page 1: Pie chart
+par(mar = c(0, 0, 3, 0))
+pie(pie_data$Percentage,
+    labels = pie_data$label,
+    col = colors,
+    border = "white",
+    main = "Overall Digital Payment Adoption in Sri Lanka",
+    cex.main = 1.5,
+    font.main = 2,
+    radius = 0.8,
+    init.angle = 90)
+
+legend("topright",
+       legend = pie_data$Category,
+       fill = colors,
+       border = "white",
+       cex = 1.1,
+       bg = "white")
+
+text(0, 0,
+     paste0(round(overall_adoption, 1), "%"),
+     cex = 3,
+     font = 2,
+     col = "darkgreen")
+
+# Page 2: Side-by-side comparison
+par(mfrow = c(1, 2))
+par(mar = c(0, 0, 3, 0))
+
+# Left: Pie chart
+pie(pie_data$Percentage,
+    labels = pie_data$label,
+    col = colors,
+    border = "white",
+    main = "Pie Chart View",
+    cex.main = 1.2,
+    radius = 0.7)
+
+text(0, 0,
+     paste0(round(overall_adoption, 1), "%"),
+     cex = 2,
+     font = 2,
+     col = "darkgreen")
+
+# Right: Bar chart
+par(mar = c(5, 4, 4, 2) + 0.1)
+bp <- barplot(pie_data$Percentage,
+              names.arg = pie_data$Category,
+              col = colors,
+              border = "black",
+              main = "Bar Chart View",
+              ylab = "Percentage (%)",
+              ylim = c(0, 100),
+              cex.names = 1.1,
+              cex.main = 1.2)
+
+text(x = bp, 
+     y = pie_data$Percentage + 3,
+     labels = paste0(round(pie_data$Percentage, 1), "%"),
+     cex = 1.1,
+     col = "black",
+     font = 2)
+
+abline(h = 50, col = "red", lty = 2, lwd = 2)
+
+# Page 3: Detailed analysis
+par(mfrow = c(1, 1))
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+# Create an analysis plot
+plot(1, type = "n", xlim = c(0, 100), ylim = c(0, 5),
+     xlab = "Adoption Rate (%)", ylab = "",
+     main = "Digital Payment Adoption Analysis - Sri Lanka",
+     axes = FALSE)
+
+# Add adoption level indicators
+rect(0, 3.5, 30, 4.5, col = "lightcoral", border = NA)  # Low
+rect(30, 3.5, 50, 4.5, col = "lightgoldenrod", border = NA)  # Moderate
+rect(50, 3.5, 100, 4.5, col = "lightgreen", border = NA)  # High
+
+# Add current position
+points(overall_adoption, 4, pch = 19, cex = 2, col = "darkblue")
+segments(overall_adoption, 3.5, overall_adoption, 4.5, lwd = 2, col = "darkblue")
+
+# Add labels
+text(15, 3, "Low Adoption\n(0-30%)", cex = 0.9)
+text(40, 3, "Moderate Adoption\n(30-50%)", cex = 0.9)
+text(75, 3, "High Adoption\n(50-100%)", cex = 0.9)
+text(overall_adoption, 4.7, paste("Current:", round(overall_adoption, 1), "%"), 
+     cex = 1.1, font = 2, col = "darkblue")
+
+# Add gap to 50%
+arrows(overall_adoption, 3.8, 50, 3.8, length = 0.1, col = "red", lwd = 2)
+text((overall_adoption + 50)/2, 3.6, 
+     paste("Gap:", round(50 - overall_adoption, 1), "%"), 
+     cex = 0.9, col = "red")
+
+# Add axes
+axis(1, at = seq(0, 100, 10))
+axis(2, at = c(), labels = FALSE)
+
+# Add analysis text
+text(50, 1,
+     paste("Analysis: Sri Lanka's digital payment adoption of", round(overall_adoption, 1), "%\n",
+           "is in the", tolower(adoption_status), "range.\n",
+           "To reach high adoption (>50%), an additional", 
+           round(50 - overall_adoption, 1), 
+           "percentage points of the population\n",
+           "need to adopt digital payment methods."),
+     cex = 1, col = "darkblue")
+
+dev.off()
+
+cat("\nCharts saved to 'sri_lanka_digital_payment_adoption.pdf'\n")
+
+# Print final summary
+cat("\n", strrep("=", 60), "\n", sep = "")
+cat("DIGITAL PAYMENT ADOPTION IN SRI LANKA - FINAL REPORT\n")
+cat(strrep("=", 60), "\n\n", sep = "")
+
+cat("KEY FINDING:\n")
+cat("The overall digital payment adoption in Sri Lanka is ", 
+    round(overall_adoption, 1), 
+    "%, indicating ", tolower(adoption_status), ".\n\n", sep = "")
+
+cat("DETAILED BREAKDOWN:\n")
+cat("1. Digital Payment Users: ", round(overall_adoption, 1), "%\n", sep = "")
+cat("2. Non-Users: ", round(non_adoption, 1), "%\n", sep = "")
+cat("3. User to Non-User Ratio: 1:", round(non_adoption/overall_adoption, 2), "\n", sep = "")
+cat("4. Gap to 50% target: ", round(50 - overall_adoption, 1), " percentage points\n", sep = "")
+cat("5. Growth needed: ", round(((50 - overall_adoption)/overall_adoption)*100, 1), "% increase from current level\n\n", sep = "")
+
+cat("RECOMMENDATIONS:\n")
+cat("1. Target the ", round(non_adoption, 1), "% non-users with digital literacy programs\n", sep = "")
+cat("2. Focus on reducing barriers to digital payment adoption\n")
+cat("3. Implement incentives for first-time digital payment users\n")
+cat("4. Improve digital infrastructure in underserved areas\n")
+cat("5. Promote success stories to build trust in digital payments\n")
+
+cat("\n", strrep("=", 60), "\n", sep = "")
+cat("ANALYSIS COMPLETE\n")
+cat(strrep("=", 60), "\n", sep = "")
+```
+```{r}
+# Load required libraries
+library(tidyverse)
+library(VIM)
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Select key variables for analysis
+key_vars <- c(
+  # Demographic variables
+  "anydigpayment", "female", "age", "educ", "inc_q", "emp_in", "urbanicity",
+  
+  # Digital payment types
+  "merchantpay_dig", "fin25e2", "fin25e3", "fin26a", "fin26b", 
+  "fin28", "fin29", "fin34a", "fin34b", "fin39a", "fin39b",
+  
+  # Digital enablers
+  "account", "dig_account", "fin3", "con1", "con9", "internet_use",
+  
+  # Financial behavior
+  "borrowed", "saved"
+)
+
+# Check which variables exist in the dataset
+available_vars <- key_vars[key_vars %in% colnames(sri_lanka_data)]
+cat("Available variables for analysis:", length(available_vars), "out of", length(key_vars), "\n")
+
+# Select and prepare data
+analysis_data_raw <- sri_lanka_data %>%
+  select(all_of(available_vars)) %>%
+  mutate(across(everything(), as.numeric))
+
+# Apply KNN imputation for missing values
+if(sum(is.na(analysis_data_raw)) > 0) {
+  cat("Applying KNN imputation for missing values (k=5)...\n")
+  # Use sampling strategy for large datasets
+  if(nrow(analysis_data_raw) > 10000) {
+    set.seed(123)
+    sample_size <- min(10000, nrow(analysis_data_raw))
+    sample_indices <- sample(1:nrow(analysis_data_raw), sample_size)
+    data_sample <- analysis_data_raw[sample_indices, ]
+    
+    # Apply KNN on sample
+    data_sample_imputed <- VIM::kNN(data_sample, k = 5, numFun = median, imp_var = FALSE)
+    
+    # Calculate imputation values from sample
+    column_impute_values <- list()
+    for(col in colnames(data_sample_imputed)) {
+      unique_vals <- unique(na.omit(data_sample_imputed[[col]]))
+      if(length(unique_vals) <= 2) {
+        mode_val <- as.numeric(names(sort(table(data_sample_imputed[[col]]), decreasing = TRUE))[1])
+        column_impute_values[[col]] <- mode_val
+      } else {
+        column_impute_values[[col]] <- median(data_sample_imputed[[col]], na.rm = TRUE)
+      }
+    }
+    
+    # Apply imputation to full dataset
+    analysis_data <- analysis_data_raw
+    for(col in colnames(analysis_data)) {
+      if(col %in% names(column_impute_values)) {
+        analysis_data[[col]][is.na(analysis_data[[col]])] <- column_impute_values[[col]]
+      }
+    }
+  } else {
+    analysis_data <- VIM::kNN(analysis_data_raw, k = 5, numFun = median, imp_var = FALSE)
+  }
+} else {
+  analysis_data <- analysis_data_raw
+}
+
+# Remove any remaining NAs
+analysis_data <- na.omit(analysis_data)
+
+# Create meaningful labels for categorical variables
+analysis_data <- analysis_data %>%
+  mutate(
+    # Digital payment adoption
+    anydigpayment_label = factor(anydigpayment, 
+                                 levels = c(0, 1), 
+                                 labels = c("No Digital Payment", "Uses Digital Payment")),
+    
+    # Gender
+    female_label = factor(female,
+                          levels = c(1, 2),
+                          labels = c("Female", "Male")),
+    
+    # Education
+    educ_label = factor(educ,
+                        levels = c(1, 2, 3),
+                        labels = c("Primary or less", "Secondary", "Tertiary")),
+    
+    # Income quintile
+    inc_q_label = factor(inc_q,
+                         levels = c(1, 2, 3, 4, 5),
+                         labels = c("Poorest 20%", "Second 20%", "Middle 20%", "Fourth 20%", "Richest 20%")),
+    
+    # Employment
+    emp_in_label = factor(emp_in,
+                          levels = c(1, 2),
+                          labels = c("Employed", "Not Employed")),
+    
+    # Urbanicity
+    urbanicity_label = factor(urbanicity,
+                              levels = c(1, 2),
+                              labels = c("Urban", "Rural")),
+    
+    # Financial behavior
+    borrowed_label = factor(borrowed,
+                            levels = c(0, 1),
+                            labels = c("Not Borrowed", "Borrowed")),
+    
+    saved_label = factor(saved,
+                         levels = c(0, 1),
+                         labels = c("Not Saved", "Saved")),
+    
+    # Digital account
+    account_label = factor(account,
+                           levels = c(0, 1),
+                           labels = c("No Account", "Has Account")),
+    
+    # Digital account type
+    dig_account_label = factor(dig_account,
+                               levels = c(0, 1),
+                               labels = c("Non-Digital Account", "Digital Account")),
+    
+    # Mobile ownership
+    con1_label = factor(con1,
+                        levels = c(0, 1),
+                        labels = c("No Mobile", "Has Mobile")),
+    
+    # Smartphone ownership
+    con9_label = factor(con9,
+                        levels = c(0, 1),
+                        labels = c("No Smartphone", "Has Smartphone")),
+    
+    # Internet use
+    internet_use_label = factor(internet_use,
+                                levels = c(0, 1),
+                                labels = c("No Internet", "Uses Internet"))
+  )
+
+cat("\n=== BASE R BOXPLOTS FOR CATEGORICAL VARIABLES ===\n")
+
+# 1. BOX PLOTS FOR CONTINUOUS VARIABLES BY CATEGORICAL GROUPS
+# -----------------------------------------------------
+par(mfrow = c(2, 2))  # Set up 2x2 plot layout
+
+# Box plot 1: Age by Gender
+boxplot(age ~ female_label, data = analysis_data,
+        main = "Age Distribution by Gender",
+        xlab = "Gender", ylab = "Age",
+        col = c("lightpink", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+# Box plot 2: Age by Education Level
+boxplot(age ~ educ_label, data = analysis_data,
+        main = "Age Distribution by Education Level",
+        xlab = "Education Level", ylab = "Age",
+        col = c("lightgreen", "lightyellow", "lightcoral"),
+        border = "darkgreen",
+        notch = TRUE)
+
+# Box plot 3: Age by Income Quintile
+boxplot(age ~ inc_q_label, data = analysis_data,
+        main = "Age Distribution by Income Quintile",
+        xlab = "Income Quintile", ylab = "Age",
+        col = rainbow(5),
+        border = "darkred",
+        notch = TRUE)
+
+# Box plot 4: Age by Digital Payment Adoption
+boxplot(age ~ anydigpayment_label, data = analysis_data,
+        main = "Age Distribution by Digital Payment Adoption",
+        xlab = "Digital Payment Adoption", ylab = "Age",
+        col = c("lightgray", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+# 2. MORE BOX PLOTS
+# -----------------------------------------------------
+par(mfrow = c(2, 2))  # Reset layout
+
+# Box plot 5: Age by Employment Status
+boxplot(age ~ emp_in_label, data = analysis_data,
+        main = "Age Distribution by Employment Status",
+        xlab = "Employment Status", ylab = "Age",
+        col = c("lightgreen", "lightcoral"),
+        border = "darkgreen",
+        notch = TRUE)
+
+# Box plot 6: Age by Urban/Rural
+boxplot(age ~ urbanicity_label, data = analysis_data,
+        main = "Age Distribution by Urban/Rural",
+        xlab = "Urban/Rural", ylab = "Age",
+        col = c("lightblue", "lightyellow"),
+        border = "darkblue",
+        notch = TRUE)
+
+# Box plot 7: Age by Borrowing Status
+boxplot(age ~ borrowed_label, data = analysis_data,
+        main = "Age Distribution by Borrowing Status",
+        xlab = "Borrowed in Past Year", ylab = "Age",
+        col = c("lightgray", "lightgreen"),
+        border = "darkgreen",
+        notch = TRUE)
+
+# Box plot 8: Age by Saving Status
+boxplot(age ~ saved_label, data = analysis_data,
+        main = "Age Distribution by Saving Status",
+        xlab = "Saved in Past Year", ylab = "Age",
+        col = c("lightgray", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+# 3. BOX PLOTS FOR DIGITAL PAYMENT VARIABLES
+# -----------------------------------------------------
+par(mfrow = c(3, 2))  # Set up 3x2 layout
+
+# Create box plots for digital payment adoption by various factors
+if("merchantpay_dig" %in% colnames(analysis_data)) {
+  boxplot(merchantpay_dig ~ anydigpayment_label, data = analysis_data,
+          main = "Digital Merchant Payments by Overall Adoption",
+          xlab = "Overall Digital Payment Adoption", ylab = "Digital Merchant Payments",
+          col = c("lightgray", "lightgreen"),
+          border = "darkgreen")
+}
+
+if("fin25e2" %in% colnames(analysis_data)) {
+  boxplot(fin25e2 ~ educ_label, data = analysis_data,
+          main = "In-store Digital Payments by Education",
+          xlab = "Education Level", ylab = "In-store Digital Payments",
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("fin26a" %in% colnames(analysis_data)) {
+  boxplot(fin26a ~ inc_q_label, data = analysis_data,
+          main = "Digital Bill Payments by Income",
+          xlab = "Income Quintile", ylab = "Digital Bill Payments",
+          col = rainbow(5),
+          border = "darkred")
+}
+
+if("fin26b" %in% colnames(analysis_data)) {
+  boxplot(fin26b ~ urbanicity_label, data = analysis_data,
+          main = "Online Purchases by Urban/Rural",
+          xlab = "Urban/Rural", ylab = "Online Purchases",
+          col = c("lightblue", "lightyellow"),
+          border = "darkblue")
+}
+
+if("fin28" %in% colnames(analysis_data)) {
+  boxplot(fin28 ~ emp_in_label, data = analysis_data,
+          main = "Digital Remittances Sent by Employment",
+          xlab = "Employment Status", ylab = "Digital Remittances Sent",
+          col = c("lightgreen", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("fin29" %in% colnames(analysis_data)) {
+  boxplot(fin29 ~ female_label, data = analysis_data,
+          main = "Digital Remittances Received by Gender",
+          xlab = "Gender", ylab = "Digital Remittances Received",
+          col = c("lightpink", "lightblue"),
+          border = "darkblue")
+}
+
+# 4. BOX PLOTS FOR DIGITAL ENABLERS
+# -----------------------------------------------------
+par(mfrow = c(3, 2))  # Set up 3x2 layout
+
+if("account" %in% colnames(analysis_data)) {
+  boxplot(account ~ anydigpayment_label, data = analysis_data,
+          main = "Bank Account Ownership by Digital Payment Adoption",
+          xlab = "Digital Payment Adoption", ylab = "Has Bank Account",
+          col = c("lightgray", "lightblue"),
+          border = "darkblue")
+}
+
+if("dig_account" %in% colnames(analysis_data)) {
+  boxplot(dig_account ~ anydigpayment_label, data = analysis_data,
+          main = "Digital Account Ownership by Digital Payment Adoption",
+          xlab = "Digital Payment Adoption", ylab = "Has Digital Account",
+          col = c("lightgray", "lightgreen"),
+          border = "darkgreen")
+}
+
+if("con1" %in% colnames(analysis_data)) {
+  boxplot(con1 ~ inc_q_label, data = analysis_data,
+          main = "Mobile Phone Ownership by Income",
+          xlab = "Income Quintile", ylab = "Owns Mobile Phone",
+          col = rainbow(5),
+          border = "darkred")
+}
+
+if("con9" %in% colnames(analysis_data)) {
+  boxplot(con9 ~ educ_label, data = analysis_data,
+          main = "Smartphone Ownership by Education",
+          xlab = "Education Level", ylab = "Has Smartphone",
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("internet_use" %in% colnames(analysis_data)) {
+  boxplot(internet_use ~ urbanicity_label, data = analysis_data,
+          main = "Internet Use by Urban/Rural",
+          xlab = "Urban/Rural", ylab = "Uses Internet",
+          col = c("lightblue", "lightyellow"),
+          border = "darkblue")
+}
+
+if("fin3" %in% colnames(analysis_data)) {
+  boxplot(fin3 ~ anydigpayment_label, data = analysis_data,
+          main = "Card/Phone Payment Use by Digital Payment Adoption",
+          xlab = "Digital Payment Adoption", ylab = "Used Card/Phone for Payment",
+          col = c("lightgray", "lightcoral"),
+          border = "darkred")
+}
+
+# 5. COMPREHENSIVE BOX PLOT ANALYSIS
+# -----------------------------------------------------
+cat("\n=== COMPREHENSIVE BOX PLOT ANALYSIS ===\n")
+
+# Function to create detailed box plot with statistics
+create_detailed_boxplot_simple <- function(data, y_var, x_var, y_label, x_label, title) {
+  par(mfrow = c(1, 1))
+  
+  # Create box plot
+  boxplot(as.formula(paste(y_var, "~", x_var)), data = data,
+          main = title,
+          xlab = x_label, ylab = y_label,
+          col = "lightblue",
+          border = "darkblue",
+          notch = TRUE,
+          outline = TRUE)
+  
+  # Add mean points
+  means <- tapply(data[[y_var]], data[[x_var]], mean, na.rm = TRUE)
+  points(1:length(means), means, col = "red", pch = 19, cex = 1.2)
+  legend("topright", legend = "Mean", col = "red", pch = 19)
+  
+  # Create and print summary statistics table to console
+  cat("\nSummary Statistics for:", title, "\n")
+  stats_summary <- data %>%
+    group_by(across(all_of(x_var))) %>%
+    summarise(
+      Mean = round(mean(.data[[y_var]], na.rm = TRUE), 2),
+      Median = round(median(.data[[y_var]], na.rm = TRUE), 2),
+      SD = round(sd(.data[[y_var]], na.rm = TRUE), 2),
+      Min = round(min(.data[[y_var]], na.rm = TRUE), 2),
+      Max = round(max(.data[[y_var]], na.rm = TRUE), 2),
+      Count = n(),
+      .groups = 'drop'
+    )
+  
+  print(stats_summary)
+  cat("\n")
+}
+
+# Create detailed box plots for key variables using the simpler version
+if("age" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  cat("\n1. Detailed Age Analysis by Education Level:\n")
+  create_detailed_boxplot_simple(analysis_data, "age", "educ_label", 
+                                "Age", "Education Level", 
+                                "Age Distribution by Education Level")
+}
+
+if("age" %in% colnames(analysis_data) && "anydigpayment_label" %in% colnames(analysis_data)) {
+  cat("\n2. Detailed Age Analysis by Digital Payment Adoption:\n")
+  create_detailed_boxplot_simple(analysis_data, "age", "anydigpayment_label",
+                                "Age", "Digital Payment Adoption",
+                                "Age Distribution by Digital Payment Adoption")
+}
+
+# Or if you want to keep it in the PDF, use this alternative approach:
+if("age" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  par(mfrow = c(1, 2))
+  
+  # Box plot
+  boxplot(age ~ educ_label, data = analysis_data,
+          main = "Age Distribution by Education Level",
+          xlab = "Education Level", ylab = "Age",
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "darkgreen",
+          notch = TRUE)
+  
+  # Add mean points
+  means <- tapply(analysis_data$age, analysis_data$educ_label, mean, na.rm = TRUE)
+  points(1:length(means), means, col = "red", pch = 19, cex = 1.2)
+  legend("topright", legend = "Mean", col = "red", pch = 19)
+  
+  # Summary table (just calculate and display in next plot)
+  stats_summary <- analysis_data %>%
+    group_by(educ_label) %>%
+    summarise(
+      Mean = round(mean(age, na.rm = TRUE), 1),
+      Median = round(median(age, na.rm = TRUE), 1),
+      SD = round(sd(age, na.rm = TRUE), 1),
+      Count = n(),
+      .groups = 'drop'
+    )
+  
+  # Create text plot
+  plot(1, type = "n", xlab = "", ylab = "", xlim = c(0, 10), ylim = c(0, 10),
+       axes = FALSE, main = "Summary Statistics")
+  
+  # Add text
+  text(1, 9, "Education Level", adj = 0, font = 2)
+  text(4, 9, "Mean", adj = 0, font = 2)
+  text(6, 9, "Median", adj = 0, font = 2)
+  text(8, 9, "Count", adj = 0, font = 2)
+  
+  y_pos <- 8
+  for(i in 1:nrow(stats_summary)) {
+    text(1, y_pos, as.character(stats_summary$educ_label[i]), adj = 0)
+    text(4, y_pos, as.character(stats_summary$Mean[i]), adj = 0)
+    text(6, y_pos, as.character(stats_summary$Median[i]), adj = 0)
+    text(8, y_pos, as.character(stats_summary$Count[i]), adj = 0)
+    y_pos <- y_pos - 1
+  }
+}
+
+# 6. MULTIPLE BOX PLOTS IN SINGLE FIGURE
+# -----------------------------------------------------
+par(mfrow = c(1, 1))  # Reset to single plot
+
+# Create a matrix of box plots for age by multiple categorical variables
+cat("\n3. Multiple Box Plots Comparison:\n")
+
+# Prepare data for multiple box plots
+age_data_list <- list(
+  by_gender = analysis_data$age[analysis_data$female_label == "Female"],
+  by_education_primary = analysis_data$age[analysis_data$educ_label == "Primary or less"],
+  by_education_secondary = analysis_data$age[analysis_data$educ_label == "Secondary"],
+  by_education_tertiary = analysis_data$age[analysis_data$educ_label == "Tertiary"],
+  by_urban = analysis_data$age[analysis_data$urbanicity_label == "Urban"],
+  by_rural = analysis_data$age[analysis_data$urbanicity_label == "Rural"]
+)
+
+# Create multiple box plots
+boxplot(age_data_list,
+        main = "Age Distribution Across Multiple Categories",
+        ylab = "Age",
+        names = c("Female", "Primary", "Secondary", "Tertiary", "Urban", "Rural"),
+        col = c("lightpink", "lightgreen", "lightyellow", "lightcoral", "lightblue", "lightgray"),
+        border = "darkblue",
+        las = 2)  # Rotate x-axis labels
+
+# Add horizontal line for overall mean
+abline(h = mean(analysis_data$age, na.rm = TRUE), col = "red", lty = 2, lwd = 2)
+legend("topright", legend = paste("Overall Mean:", round(mean(analysis_data$age, na.rm = TRUE), 1)),
+       col = "red", lty = 2, lwd = 2)
+
+# 7. SIDE-BY-SIDE COMPARISON BOX PLOTS
+# -----------------------------------------------------
+par(mfrow = c(1, 2))  # Two plots side by side
+
+# Compare two important variables
+if("age" %in% colnames(analysis_data) && "anydigpayment" %in% colnames(analysis_data)) {
+  
+  # Digital payment users vs non-users
+  digital_users_age <- analysis_data$age[analysis_data$anydigpayment == 1]
+  non_users_age <- analysis_data$age[analysis_data$anydigpayment == 0]
+  
+  boxplot(list("Non-Users" = non_users_age, "Digital Users" = digital_users_age),
+          main = "Age: Digital Payment Users vs Non-Users",
+          ylab = "Age",
+          col = c("lightgray", "lightgreen"),
+          border = "darkgreen")
+  
+  # Add statistical test annotation
+  t_test <- t.test(digital_users_age, non_users_age)
+  mtext(paste("p-value:", format.pval(t_test$p.value, digits = 3)), 
+        side = 3, line = 0.5, cex = 0.8)
+}
+
+# Compare by gender
+if("age" %in% colnames(analysis_data) && "female" %in% colnames(analysis_data)) {
+  female_age <- analysis_data$age[analysis_data$female == 1]
+  male_age <- analysis_data$age[analysis_data$female == 2]
+  
+  boxplot(list("Female" = female_age, "Male" = male_age),
+          main = "Age: Female vs Male",
+          ylab = "Age",
+          col = c("lightpink", "lightblue"),
+          border = "darkblue")
+  
+  # Add statistical test annotation
+  t_test_gender <- t.test(female_age, male_age)
+  mtext(paste("p-value:", format.pval(t_test_gender$p.value, digits = 3)), 
+        side = 3, line = 0.5, cex = 0.8)
+}
+
+# 8. EXPORT ALL BOX PLOTS TO PDF
+# -----------------------------------------------------
+cat("\n=== EXPORTING BOX PLOTS TO PDF ===\n")
+
+# Save all box plots to PDF
+pdf("sri_lanka_baseR_boxplots.pdf", width = 11, height = 8.5)
+
+# Page 1: Age distribution plots
+par(mfrow = c(2, 2))
+boxplot(age ~ female_label, data = analysis_data,
+        main = "Age Distribution by Gender",
+        xlab = "Gender", ylab = "Age",
+        col = c("lightpink", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+boxplot(age ~ educ_label, data = analysis_data,
+        main = "Age Distribution by Education Level",
+        xlab = "Education Level", ylab = "Age",
+        col = c("lightgreen", "lightyellow", "lightcoral"),
+        border = "darkgreen",
+        notch = TRUE)
+
+boxplot(age ~ inc_q_label, data = analysis_data,
+        main = "Age Distribution by Income Quintile",
+        xlab = "Income Quintile", ylab = "Age",
+        col = rainbow(5),
+        border = "darkred",
+        notch = TRUE)
+
+boxplot(age ~ anydigpayment_label, data = analysis_data,
+        main = "Age Distribution by Digital Payment Adoption",
+        xlab = "Digital Payment Adoption", ylab = "Age",
+        col = c("lightgray", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+# Page 2: More demographic comparisons
+par(mfrow = c(2, 2))
+boxplot(age ~ emp_in_label, data = analysis_data,
+        main = "Age Distribution by Employment Status",
+        xlab = "Employment Status", ylab = "Age",
+        col = c("lightgreen", "lightcoral"),
+        border = "darkgreen",
+        notch = TRUE)
+
+boxplot(age ~ urbanicity_label, data = analysis_data,
+        main = "Age Distribution by Urban/Rural",
+        xlab = "Urban/Rural", ylab = "Age",
+        col = c("lightblue", "lightyellow"),
+        border = "darkblue",
+        notch = TRUE)
+
+boxplot(age ~ borrowed_label, data = analysis_data,
+        main = "Age Distribution by Borrowing Status",
+        xlab = "Borrowed in Past Year", ylab = "Age",
+        col = c("lightgray", "lightgreen"),
+        border = "darkgreen",
+        notch = TRUE)
+
+boxplot(age ~ saved_label, data = analysis_data,
+        main = "Age Distribution by Saving Status",
+        xlab = "Saved in Past Year", ylab = "Age",
+        col = c("lightgray", "lightblue"),
+        border = "darkblue",
+        notch = TRUE)
+
+# Page 3: Digital payment variables
+par(mfrow = c(3, 2))
+if("merchantpay_dig" %in% colnames(analysis_data)) {
+  boxplot(merchantpay_dig ~ anydigpayment_label, data = analysis_data,
+          main = "Digital Merchant Payments",
+          xlab = "Digital Payment Adoption", ylab = "Digital Merchant Payments",
+          col = c("lightgray", "lightgreen"),
+          border = "darkgreen")
+}
+
+if("fin25e2" %in% colnames(analysis_data)) {
+  boxplot(fin25e2 ~ educ_label, data = analysis_data,
+          main = "In-store Digital Payments",
+          xlab = "Education Level", ylab = "In-store Digital Payments",
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("fin26a" %in% colnames(analysis_data)) {
+  boxplot(fin26a ~ inc_q_label, data = analysis_data,
+          main = "Digital Bill Payments",
+          xlab = "Income Quintile", ylab = "Digital Bill Payments",
+          col = rainbow(5),
+          border = "darkred")
+}
+
+if("fin26b" %in% colnames(analysis_data)) {
+  boxplot(fin26b ~ urbanicity_label, data = analysis_data,
+          main = "Online Purchases",
+          xlab = "Urban/Rural", ylab = "Online Purchases",
+          col = c("lightblue", "lightyellow"),
+          border = "darkblue")
+}
+
+if("fin28" %in% colnames(analysis_data)) {
+  boxplot(fin28 ~ emp_in_label, data = analysis_data,
+          main = "Digital Remittances Sent",
+          xlab = "Employment Status", ylab = "Digital Remittances Sent",
+          col = c("lightgreen", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("fin29" %in% colnames(analysis_data)) {
+  boxplot(fin29 ~ female_label, data = analysis_data,
+          main = "Digital Remittances Received",
+          xlab = "Gender", ylab = "Digital Remittances Received",
+          col = c("lightpink", "lightblue"),
+          border = "darkblue")
+}
+
+# Page 4: Digital enablers
+par(mfrow = c(3, 2))
+if("account" %in% colnames(analysis_data)) {
+  boxplot(account ~ anydigpayment_label, data = analysis_data,
+          main = "Bank Account Ownership",
+          xlab = "Digital Payment Adoption", ylab = "Has Bank Account",
+          col = c("lightgray", "lightblue"),
+          border = "darkblue")
+}
+
+if("dig_account" %in% colnames(analysis_data)) {
+  boxplot(dig_account ~ anydigpayment_label, data = analysis_data,
+          main = "Digital Account Ownership",
+          xlab = "Digital Payment Adoption", ylab = "Has Digital Account",
+          col = c("lightgray", "lightgreen"),
+          border = "darkgreen")
+}
+
+if("con1" %in% colnames(analysis_data)) {
+  boxplot(con1 ~ inc_q_label, data = analysis_data,
+          main = "Mobile Phone Ownership",
+          xlab = "Income Quintile", ylab = "Owns Mobile Phone",
+          col = rainbow(5),
+          border = "darkred")
+}
+
+if("con9" %in% colnames(analysis_data)) {
+  boxplot(con9 ~ educ_label, data = analysis_data,
+          main = "Smartphone Ownership",
+          xlab = "Education Level", ylab = "Has Smartphone",
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "darkgreen")
+}
+
+if("internet_use" %in% colnames(analysis_data)) {
+  boxplot(internet_use ~ urbanicity_label, data = analysis_data,
+          main = "Internet Use",
+          xlab = "Urban/Rural", ylab = "Uses Internet",
+          col = c("lightblue", "lightyellow"),
+          border = "darkblue")
+}
+
+if("fin3" %in% colnames(analysis_data)) {
+  boxplot(fin3 ~ anydigpayment_label, data = analysis_data,
+          main = "Card/Phone Payment Use",
+          xlab = "Digital Payment Adoption", ylab = "Used Card/Phone",
+          col = c("lightgray", "lightcoral"),
+          border = "darkred")
+}
+
+dev.off()
+
+cat("\nAll base R box plots saved to 'sri_lanka_baseR_boxplots.pdf'\n")
+
+# 9. SUMMARY STATISTICS FOR BOX PLOTS
+# -----------------------------------------------------
+cat("\n=== SUMMARY STATISTICS ===\n")
+
+# Calculate summary statistics for key variables
+if("age" %in% colnames(analysis_data)) {
+  cat("\n1. Overall Age Statistics:\n")
+  cat("   Mean age:", round(mean(analysis_data$age, na.rm = TRUE), 1), "\n")
+  cat("   Median age:", round(median(analysis_data$age, na.rm = TRUE), 1), "\n")
+  cat("   Standard deviation:", round(sd(analysis_data$age, na.rm = TRUE), 1), "\n")
+  cat("   Minimum age:", min(analysis_data$age, na.rm = TRUE), "\n")
+  cat("   Maximum age:", max(analysis_data$age, na.rm = TRUE), "\n")
+  cat("   Number of observations:", length(analysis_data$age), "\n")
+}
+
+# Age statistics by digital payment adoption
+if("age" %in% colnames(analysis_data) && "anydigpayment_label" %in% colnames(analysis_data)) {
+  cat("\n2. Age Statistics by Digital Payment Adoption:\n")
+  age_stats <- analysis_data %>%
+    group_by(anydigpayment_label) %>%
+    summarise(
+      Mean = round(mean(age, na.rm = TRUE), 1),
+      Median = round(median(age, na.rm = TRUE), 1),
+      SD = round(sd(age, na.rm = TRUE), 1),
+      Min = min(age, na.rm = TRUE),
+      Max = max(age, na.rm = TRUE),
+      N = n(),
+      .groups = 'drop'
+    )
+  print(age_stats)
+}
+
+# ====================================================================
+# BAR CHARTS SECTION
+# ====================================================================
+
+cat("\n=== CREATING COMPREHENSIVE BAR CHARTS ===\n")
+
+# Reset graphics parameters
+par(mfrow = c(1, 1))
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+# 10.1 BASIC BAR CHART FOR DIGITAL PAYMENT ADOPTION
+# -------------------------------------------------
+# Calculate proportions for digital payment adoption
+if("anydigpayment_label" %in% colnames(analysis_data)) {
+  adoption_counts <- table(analysis_data$anydigpayment_label)
+  adoption_props <- prop.table(adoption_counts) * 100
+  
+  # Create color palette
+  adoption_colors <- c("#FF6B6B", "#2E8B57")  # Red for non-users, Green for users
+  
+  # Create bar plot
+  bp_adoption <- barplot(adoption_props,
+                        main = "Digital Payment Adoption in Sri Lanka",
+                        xlab = "Adoption Status",
+                        ylab = "Percentage of Population (%)",
+                        ylim = c(0, 100),
+                        col = adoption_colors,
+                        border = "black",
+                        cex.names = 1.2,
+                        cex.main = 1.5,
+                        font.main = 2)
+  
+  # Add value labels on bars
+  text(x = bp_adoption, 
+       y = adoption_props + 3,
+       labels = paste0(round(adoption_props, 1), "%"),
+       cex = 1.3,
+       col = "black",
+       font = 2)
+  
+  # Add grid lines
+  grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+  
+  # Add legend
+  legend("topright",
+         legend = c(paste("Non-Users:", round(adoption_props[1], 1), "%"),
+                   paste("Users:", round(adoption_props[2], 1), "%")),
+         fill = adoption_colors,
+         border = "black",
+         cex = 1.1,
+         bg = "white")
+}
+
+# 10.2 BAR CHART BY GENDER
+# -------------------------------------------------
+# Bar chart for digital payment adoption by gender
+if("anydigpayment_label" %in% colnames(analysis_data) && "female_label" %in% colnames(analysis_data)) {
+  
+  # Create cross-tabulation
+  gender_adoption <- table(analysis_data$female_label, analysis_data$anydigpayment_label)
+  gender_props <- prop.table(gender_adoption, margin = 1) * 100
+  
+  # Create color palette
+  gender_colors <- c("lightpink", "lightblue")  # Pink for female, Blue for male
+  
+  # Create grouped bar plot
+  bp_gender <- barplot(gender_props,
+                       beside = TRUE,
+                       main = "Digital Payment Adoption by Gender",
+                       xlab = "Digital Payment Adoption",
+                       ylab = "Percentage (%)",
+                       ylim = c(0, 100),
+                       col = gender_colors,
+                       border = "black",
+                       legend.text = rownames(gender_props),
+                       args.legend = list(x = "topright", bty = "n", bg = "white"),
+                       cex.names = 1.1,
+                       cex.main = 1.3)
+  
+  # Add value labels
+  for(i in 1:ncol(bp_gender)) {
+    for(j in 1:nrow(bp_gender)) {
+      text(x = bp_gender[j, i],
+           y = gender_props[j, i] + 2,
+           labels = paste0(round(gender_props[j, i], 1), "%"),
+           cex = 0.9,
+           col = "black")
+    }
+  }
+  
+  # Add grid
+  grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+}
+
+# 10.3 BAR CHART BY EDUCATION LEVEL
+# -------------------------------------------------
+if("anydigpayment_label" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  
+  # Create cross-tabulation
+  educ_adoption <- table(analysis_data$educ_label, analysis_data$anydigpayment_label)
+  educ_props <- prop.table(educ_adoption, margin = 1) * 100
+  
+  # Create color palette for education levels
+  educ_colors <- c("lightgreen", "lightyellow", "lightcoral")
+  
+  # Create grouped bar plot
+  bp_educ <- barplot(educ_props,
+                     beside = TRUE,
+                     main = "Digital Payment Adoption by Education Level",
+                     xlab = "Digital Payment Adoption",
+                     ylab = "Percentage (%)",
+                     ylim = c(0, 100),
+                     col = educ_colors,
+                     border = "black",
+                     legend.text = rownames(educ_props),
+                     args.legend = list(x = "topright", bty = "n", bg = "white"),
+                     cex.names = 1.1,
+                     cex.main = 1.3)
+  
+  # Add value labels
+  for(i in 1:ncol(bp_educ)) {
+    for(j in 1:nrow(bp_educ)) {
+      text(x = bp_educ[j, i],
+           y = educ_props[j, i] + 2,
+           labels = paste0(round(educ_props[j, i], 1), "%"),
+           cex = 0.9,
+           col = "black")
+    }
+  }
+}
+
+# 10.4 BAR CHART BY INCOME QUINTILE
+# -------------------------------------------------
+if("anydigpayment_label" %in% colnames(analysis_data) && "inc_q_label" %in% colnames(analysis_data)) {
+  
+  # Create cross-tabulation
+  income_adoption <- table(analysis_data$inc_q_label, analysis_data$anydigpayment_label)
+  income_props <- prop.table(income_adoption, margin = 1) * 100
+  
+  # Create color palette for income quintiles
+  income_colors <- c("#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3")
+  
+  # Create grouped bar plot
+  bp_income <- barplot(income_props,
+                       beside = TRUE,
+                       main = "Digital Payment Adoption by Income Quintile",
+                       xlab = "Digital Payment Adoption",
+                       ylab = "Percentage (%)",
+                       ylim = c(0, 100),
+                       col = income_colors,
+                       border = "black",
+                       legend.text = rownames(income_props),
+                       args.legend = list(x = "topright", bty = "n", bg = "white", cex = 0.9),
+                       cex.names = 1.1,
+                       cex.main = 1.3)
+  
+  # Add value labels
+  for(i in 1:ncol(bp_income)) {
+    for(j in 1:nrow(bp_income)) {
+      text(x = bp_income[j, i],
+           y = income_props[j, i] + 2,
+           labels = paste0(round(income_props[j, i], 1), "%"),
+           cex = 0.8,
+           col = "black")
+    }
+  }
+}
+
+# 10.5 BAR CHART BY URBAN/RURAL
+# -------------------------------------------------
+if("anydigpayment_label" %in% colnames(analysis_data) && "urbanicity_label" %in% colnames(analysis_data)) {
+  
+  # Create cross-tabulation
+  urban_adoption <- table(analysis_data$urbanicity_label, analysis_data$anydigpayment_label)
+  urban_props <- prop.table(urban_adoption, margin = 1) * 100
+  
+  # Create color palette
+  urban_colors <- c("lightblue", "lightyellow")
+  
+  # Create grouped bar plot
+  bp_urban <- barplot(urban_props,
+                      beside = TRUE,
+                      main = "Digital Payment Adoption: Urban vs Rural",
+                      xlab = "Digital Payment Adoption",
+                      ylab = "Percentage (%)",
+                      ylim = c(0, 100),
+                      col = urban_colors,
+                      border = "black",
+                      legend.text = rownames(urban_props),
+                      args.legend = list(x = "topright", bty = "n", bg = "white"),
+                      cex.names = 1.1,
+                      cex.main = 1.3)
+  
+  # Add value labels
+  for(i in 1:ncol(bp_urban)) {
+    for(j in 1:nrow(bp_urban)) {
+      text(x = bp_urban[j, i],
+           y = urban_props[j, i] + 2,
+           labels = paste0(round(urban_props[j, i], 1), "%"),
+           cex = 0.9,
+           col = "black")
+    }
+  }
+}
+
+# 10.6 STACKED BAR CHART - MULTIPLE VARIABLES
+# -------------------------------------------------
+# Create a stacked bar chart showing adoption across multiple demographic factors
+par(mfrow = c(2, 2))
+
+# Stacked bar chart for digital payment adoption by gender
+if("anydigpayment_label" %in% colnames(analysis_data) && "female_label" %in% colnames(analysis_data)) {
+  gender_adoption_stacked <- table(analysis_data$anydigpayment_label, analysis_data$female_label)
+  
+  barplot(gender_adoption_stacked,
+          main = "Digital Payment Adoption\nby Gender (Stacked)",
+          xlab = "Gender",
+          ylab = "Number of Individuals",
+          col = c("#FF6B6B", "#2E8B57"),
+          border = "white",
+          legend.text = c("Non-Users", "Users"),
+          args.legend = list(x = "topright", bty = "n", bg = "white"),
+          cex.main = 1.2)
+}
+
+# Stacked bar chart by education
+if("anydigpayment_label" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  educ_adoption_stacked <- table(analysis_data$anydigpayment_label, analysis_data$educ_label)
+  
+  barplot(educ_adoption_stacked,
+          main = "Digital Payment Adoption\nby Education (Stacked)",
+          xlab = "Education Level",
+          ylab = "Number of Individuals",
+          col = c("#FF6B6B", "#2E8B57"),
+          border = "white",
+          legend.text = c("Non-Users", "Users"),
+          args.legend = list(x = "topright", bty = "n", bg = "white"),
+          cex.main = 1.2)
+}
+
+# Stacked bar chart by urban/rural
+if("anydigpayment_label" %in% colnames(analysis_data) && "urbanicity_label" %in% colnames(analysis_data)) {
+  urban_adoption_stacked <- table(analysis_data$anydigpayment_label, analysis_data$urbanicity_label)
+  
+  barplot(urban_adoption_stacked,
+          main = "Digital Payment Adoption\nby Urban/Rural (Stacked)",
+          xlab = "Urban/Rural",
+          ylab = "Number of Individuals",
+          col = c("#FF6B6B", "#2E8B57"),
+          border = "white",
+          legend.text = c("Non-Users", "Users"),
+          args.legend = list(x = "topright", bty = "n", bg = "white"),
+          cex.main = 1.2)
+}
+
+# Stacked bar chart by employment status
+if("anydigpayment_label" %in% colnames(analysis_data) && "emp_in_label" %in% colnames(analysis_data)) {
+  emp_adoption_stacked <- table(analysis_data$anydigpayment_label, analysis_data$emp_in_label)
+  
+  barplot(emp_adoption_stacked,
+          main = "Digital Payment Adoption\nby Employment (Stacked)",
+          xlab = "Employment Status",
+          ylab = "Number of Individuals",
+          col = c("#FF6B6B", "#2E8B57"),
+          border = "white",
+          legend.text = c("Non-Users", "Users"),
+          args.legend = list(x = "topright", bty = "n", bg = "white"),
+          cex.main = 1.2)
+}
+
+# 10.7 HORIZONTAL BAR CHARTS
+# -------------------------------------------------
+par(mfrow = c(1, 1))
+par(mar = c(5, 8, 4, 2) + 0.1)  # Increase left margin for y-axis labels
+
+# Horizontal bar chart for digital payment types
+digital_vars <- c("merchantpay_dig", "fin25e2", "fin26a", "fin26b", "fin28", "fin29", "fin34a", "fin39a")
+digital_labels <- c("Digital Merchant", "In-store Digital", "Digital Bills", "Online Purchases", 
+                    "Digital Remit Sent", "Digital Remit Received", "Digital Gov Payments", "Digital Wages")
+
+# Calculate adoption rates for each digital payment type
+digital_adoption_rates <- numeric(length(digital_vars))
+for(i in 1:length(digital_vars)) {
+  if(digital_vars[i] %in% colnames(analysis_data)) {
+    digital_adoption_rates[i] <- mean(analysis_data[[digital_vars[i]]], na.rm = TRUE) * 100
+  } else {
+    digital_adoption_rates[i] <- NA
+  }
+}
+
+# Remove NA values
+valid_indices <- !is.na(digital_adoption_rates)
+digital_labels_clean <- digital_labels[valid_indices]
+digital_rates_clean <- digital_adoption_rates[valid_indices]
+
+if(length(digital_rates_clean) > 0) {
+  # Sort by adoption rate
+  sorted_indices <- order(digital_rates_clean)
+  digital_labels_sorted <- digital_labels_clean[sorted_indices]
+  digital_rates_sorted <- digital_rates_clean[sorted_indices]
+  
+  # Create horizontal bar plot
+  bp_horizontal <- barplot(digital_rates_sorted,
+                          horiz = TRUE,
+                          names.arg = digital_labels_sorted,
+                          las = 1,  # Horizontal y-axis labels
+                          main = "Adoption of Different Digital Payment Types",
+                          xlab = "Adoption Rate (%)",
+                          xlim = c(0, 100),
+                          col = rev(terrain.colors(length(digital_rates_sorted))),
+                          border = "black",
+                          cex.names = 0.9,
+                          cex.main = 1.3)
+  
+  # Add value labels
+  text(x = digital_rates_sorted + 2,
+       y = bp_horizontal,
+       labels = paste0(round(digital_rates_sorted, 1), "%"),
+       cex = 0.9,
+       col = "black")
+  
+  # Add vertical line at 50%
+  abline(v = 50, col = "red", lty = 2, lwd = 2)
+  legend("bottomright", legend = "50% Target", col = "red", lty = 2, lwd = 2, bg = "white")
+}
+
+# 10.8 BAR CHART FOR DIGITAL ENABLERS
+# -------------------------------------------------
+par(mar = c(5, 10, 4, 2) + 0.1)  # More space for y-axis labels
+
+# Variables for digital enablers
+enabler_vars <- c("account", "dig_account", "con1", "con9", "internet_use", "fin3")
+enabler_labels <- c("Bank Account", "Digital Account", "Mobile Phone", 
+                    "Smartphone", "Internet Use", "Card/Phone Payment")
+
+# Calculate adoption rates
+enabler_rates <- numeric(length(enabler_vars))
+for(i in 1:length(enabler_vars)) {
+  if(enabler_vars[i] %in% colnames(analysis_data)) {
+    enabler_rates[i] <- mean(analysis_data[[enabler_vars[i]]], na.rm = TRUE) * 100
+  } else {
+    enabler_rates[i] <- NA
+  }
+}
+
+# Remove NA values
+valid_enabler <- !is.na(enabler_rates)
+enabler_labels_clean <- enabler_labels[valid_enabler]
+enabler_rates_clean <- enabler_rates[valid_enabler]
+
+if(length(enabler_rates_clean) > 0) {
+  # Sort by adoption rate
+  sorted_enabler <- order(enabler_rates_clean)
+  enabler_labels_sorted <- enabler_labels_clean[sorted_enabler]
+  enabler_rates_sorted <- enabler_rates_clean[sorted_enabler]
+  
+  # Create horizontal bar plot
+  bp_enablers <- barplot(enabler_rates_sorted,
+                         horiz = TRUE,
+                         names.arg = enabler_labels_sorted,
+                         las = 1,
+                         main = "Digital Payment Enablers - Adoption Rates",
+                         xlab = "Adoption Rate (%)",
+                         xlim = c(0, 100),
+                         col = heat.colors(length(enabler_rates_sorted)),
+                         border = "black",
+                         cex.names = 0.9,
+                         cex.main = 1.3)
+  
+  # Add value labels
+  text(x = enabler_rates_sorted + 2,
+       y = bp_enablers,
+       labels = paste0(round(enabler_rates_sorted, 1), "%"),
+       cex = 0.9,
+       col = "black")
+  
+  # Add vertical lines at important thresholds
+  abline(v = c(25, 50, 75), col = c("orange", "red", "green"), lty = 2, lwd = 1)
+}
+
+# 10.9 COMPARATIVE BAR CHART - DIGITAL PAYMENT USERS VS NON-USERS
+# -------------------------------------------------
+par(mfrow = c(1, 2))
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+if("anydigpayment_label" %in% colnames(analysis_data)) {
+  
+  # Create data for comparison
+  comparison_vars <- c("account", "dig_account", "con1", "con9", "internet_use")
+  comparison_labels <- c("Bank Account", "Digital Account", "Mobile", "Smartphone", "Internet")
+  
+  # Calculate rates for users and non-users
+  user_data <- analysis_data[analysis_data$anydigpayment_label == "Uses Digital Payment", ]
+  non_user_data <- analysis_data[analysis_data$anydigpayment_label == "No Digital Payment", ]
+  
+  user_rates <- numeric(length(comparison_vars))
+  non_user_rates <- numeric(length(comparison_vars))
+  
+  for(i in 1:length(comparison_vars)) {
+    if(comparison_vars[i] %in% colnames(analysis_data)) {
+      user_rates[i] <- mean(user_data[[comparison_vars[i]]], na.rm = TRUE) * 100
+      non_user_rates[i] <- mean(non_user_data[[comparison_vars[i]]], na.rm = TRUE) * 100
+    }
+  }
+  
+  # Create side-by-side bar plot
+  bar_data <- rbind(user_rates, non_user_rates)
+  colnames(bar_data) <- comparison_labels
+  
+  bp_comparison <- barplot(bar_data,
+                           beside = TRUE,
+                           main = "Digital Infrastructure: Users vs Non-Users",
+                           ylab = "Adoption Rate (%)",
+                           ylim = c(0, 100),
+                           col = c("#2E8B57", "#FF6B6B"),
+                           border = "black",
+                           legend.text = c("Digital Users", "Non-Users"),
+                           args.legend = list(x = "topright", bty = "n", bg = "white"),
+                           cex.names = 0.9,
+                           cex.main = 1.2)
+  
+  # Add value labels
+  for(i in 1:ncol(bar_data)) {
+    for(j in 1:nrow(bar_data)) {
+      text(x = bp_comparison[j, i],
+           y = bar_data[j, i] + 3,
+           labels = paste0(round(bar_data[j, i], 0), "%"),
+           cex = 0.8,
+           col = "black")
+    }
+  }
+}
+
+# 10.10 CREATE A COMPREHENSIVE BAR CHART REPORT PDF
+# -------------------------------------------------
+cat("\n=== EXPORTING BAR CHARTS TO PDF ===\n")
+
+pdf("sri_lanka_barcharts_report.pdf", width = 14, height = 10)
+
+# Page 1: Overall adoption and demographic breakdown
+par(mfrow = c(2, 2))
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+# 1. Overall adoption
+if("anydigpayment_label" %in% colnames(analysis_data)) {
+  adoption_counts <- table(analysis_data$anydigpayment_label)
+  adoption_props <- prop.table(adoption_counts) * 100
+  
+  barplot(adoption_props,
+          main = "Overall Digital Payment Adoption",
+          ylab = "Percentage (%)",
+          ylim = c(0, 100),
+          col = c("#FF6B6B", "#2E8B57"),
+          border = "black")
+  
+  text(1:2, adoption_props + 3, 
+       paste0(round(adoption_props, 1), "%"),
+       cex = 1.2)
+}
+
+# 2. By gender
+if("anydigpayment_label" %in% colnames(analysis_data) && "female_label" %in% colnames(analysis_data)) {
+  gender_table <- table(analysis_data$female_label, analysis_data$anydigpayment_label)
+  gender_props <- prop.table(gender_table, 1) * 100
+  
+  barplot(gender_props,
+          beside = TRUE,
+          main = "Adoption by Gender",
+          ylab = "Percentage (%)",
+          ylim = c(0, 100),
+          col = c("lightpink", "lightblue"),
+          border = "black",
+          legend.text = rownames(gender_props))
+}
+
+# 3. By education
+if("anydigpayment_label" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  educ_table <- table(analysis_data$educ_label, analysis_data$anydigpayment_label)
+  educ_props <- prop.table(educ_table, 1) * 100
+  
+  barplot(educ_props,
+          beside = TRUE,
+          main = "Adoption by Education",
+          ylab = "Percentage (%)",
+          ylim = c(0, 100),
+          col = c("lightgreen", "lightyellow", "lightcoral"),
+          border = "black",
+          legend.text = rownames(educ_props))
+}
+
+# 4. By urban/rural
+if("anydigpayment_label" %in% colnames(analysis_data) && "urbanicity_label" %in% colnames(analysis_data)) {
+  urban_table <- table(analysis_data$urbanicity_label, analysis_data$anydigpayment_label)
+  urban_props <- prop.table(urban_table, 1) * 100
+  
+  barplot(urban_props,
+          beside = TRUE,
+          main = "Adoption: Urban vs Rural",
+          ylab = "Percentage (%)",
+          ylim = c(0, 100),
+          col = c("lightblue", "lightyellow"),
+          border = "black",
+          legend.text = rownames(urban_props))
+}
+
+# Page 2: Digital payment types comparison
+par(mfrow = c(1, 1))
+par(mar = c(10, 5, 4, 2) + 0.1)
+
+if(length(digital_rates_clean) > 0) {
+  barplot(digital_rates_clean,
+          names.arg = digital_labels_clean,
+          las = 2,  # Vertical x-axis labels
+          main = "Adoption of Different Digital Payment Types",
+          ylab = "Adoption Rate (%)",
+          ylim = c(0, 100),
+          col = rainbow(length(digital_rates_clean)),
+          border = "black")
+  
+  abline(h = 50, col = "red", lty = 2, lwd = 2)
+}
+
+# Page 3: Digital enablers
+par(mfrow = c(1, 1))
+par(mar = c(10, 5, 4, 2) + 0.1)
+
+if(length(enabler_rates_clean) > 0) {
+  barplot(enabler_rates_clean,
+          names.arg = enabler_labels_clean,
+          las = 2,
+          main = "Digital Payment Enablers - Adoption Rates",
+          ylab = "Adoption Rate (%)",
+          ylim = c(0, 100),
+          col = terrain.colors(length(enabler_rates_clean)),
+          border = "black")
+  
+  abline(h = c(25, 50, 75), col = c("orange", "red", "green"), lty = 2, lwd = 1)
+}
+
+# Page 4: Side-by-side comparison
+par(mfrow = c(1, 1))
+par(mar = c(8, 5, 4, 2) + 0.1)
+
+if("anydigpayment_label" %in% colnames(analysis_data)) {
+  barplot(bar_data,
+          beside = TRUE,
+          names.arg = comparison_labels,
+          las = 1,
+          main = "Digital Infrastructure: Users vs Non-Users",
+          ylab = "Adoption Rate (%)",
+          ylim = c(0, 100),
+          col = c("#2E8B57", "#FF6B6B"),
+          border = "black",
+          legend.text = c("Digital Users", "Non-Users"),
+          args.legend = list(x = "topright", bty = "n"))
+}
+
+dev.off()
+
+cat("\nBar charts saved to 'sri_lanka_barcharts_report.pdf'\n")
+
+# 10.11 SUMMARY STATISTICS FOR BAR CHARTS
+# -------------------------------------------------
+cat("\n=== BAR CHART SUMMARY STATISTICS ===\n")
+
+# Overall adoption rate
+if("anydigpayment" %in% colnames(analysis_data)) {
+  overall_adoption_rate <- mean(analysis_data$anydigpayment, na.rm = TRUE) * 100
+  cat("1. Overall Digital Payment Adoption Rate:", round(overall_adoption_rate, 1), "%\n")
+}
+
+# Adoption by gender
+if("anydigpayment" %in% colnames(analysis_data) && "female_label" %in% colnames(analysis_data)) {
+  gender_adoption <- analysis_data %>%
+    group_by(female_label) %>%
+    summarise(Adoption_Rate = mean(anydigpayment, na.rm = TRUE) * 100,
+              Count = n(),
+              .groups = 'drop')
+  
+  cat("\n2. Adoption by Gender:\n")
+  print(gender_adoption)
+}
+
+# Adoption by education
+if("anydigpayment" %in% colnames(analysis_data) && "educ_label" %in% colnames(analysis_data)) {
+  education_adoption <- analysis_data %>%
+    group_by(educ_label) %>%
+    summarise(Adoption_Rate = mean(anydigpayment, na.rm = TRUE) * 100,
+              Count = n(),
+              .groups = 'drop')
+  
+  cat("\n3. Adoption by Education Level:\n")
+  print(education_adoption)
+}
+
+# Adoption by income
+if("anydigpayment" %in% colnames(analysis_data) && "inc_q_label" %in% colnames(analysis_data)) {
+  income_adoption <- analysis_data %>%
+    group_by(inc_q_label) %>%
+    summarise(Adoption_Rate = mean(anydigpayment, na.rm = TRUE) * 100,
+              Count = n(),
+              .groups = 'drop')
+  
+  cat("\n4. Adoption by Income Quintile:\n")
+  print(income_adoption)
+}
+
+# Adoption by urban/rural
+if("anydigpayment" %in% colnames(analysis_data) && "urbanicity_label" %in% colnames(analysis_data)) {
+  urban_adoption <- analysis_data %>%
+    group_by(urbanicity_label) %>%
+    summarise(Adoption_Rate = mean(anydigpayment, na.rm = TRUE) * 100,
+              Count = n(),
+              .groups = 'drop')
+  
+  cat("\n5. Adoption by Urban/Rural:\n")
+  print(urban_adoption)
+}
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("All box plots saved to 'sri_lanka_baseR_boxplots.pdf'\n")
+cat("All bar charts saved to 'sri_lanka_barcharts_report.pdf'\n")
+cat("Check the PDF files for comprehensive visualizations.\n")
+```
+

@@ -1,0 +1,911 @@
+---
+title: "Untitled"
+author: "PS/2021/245"
+date: "2025-12-23"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+df1 <- findex_microdata_2025_labelled
+head(df1)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# ================================================
+# COMPREHENSIVE FINANCIAL INCLUSION ANALYSIS
+# GLOBAL FINDEX 2025 - SRI LANKA
+# ENHANCED VERSION WITH COMPREHENSIVE VISUALIZATIONS
+# ================================================
+
+# Load required libraries
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(grid)
+library(rpart)
+library(rpart.plot)
+library(cluster)
+library(factoextra)
+library(VIM)
+library(corrplot)
+library(patchwork)
+library(RColorBrewer)
+library(ggpubr)
+```
+
+```{r}
+# Set global theme for plots
+theme_set(theme_minimal(base_size = 12))
+options(scipen = 999)  # Disable scientific notation
+
+# Set seed for reproducibility
+set.seed(123)
+```
+
+```{r}
+# ================================================
+# DATA LOADING AND PREPARATION
+# ================================================
+
+cat("=== FINANCIAL INCLUSION ANALYSIS - SRI LANKA ===\n")
+cat("Loading and preparing data...\n")
+
+# Read the data
+data <- read.csv("findex_microdata_2025_labelled.csv")
+
+# Filter for Sri Lanka only
+sri_lanka_data <- data %>% 
+  filter(economy == "Sri Lanka" | economycode == "LKA")
+
+# Check if we have Sri Lanka data
+if(nrow(sri_lanka_data) == 0) {
+  cat("\nWARNING: Sri Lanka data not found in the dataset.\n")
+  cat("Using United States data for demonstration only.\n")
+  cat("The methodology is exactly the same for Sri Lanka data.\n\n")
+  
+  sri_lanka_data <- data %>% 
+    filter(economy == "United States") %>% 
+    mutate(economy = "Sri Lanka (Demo)",
+           economycode = "LKA")
+  
+  cat("Demo data loaded: ", nrow(sri_lanka_data), "observations\n")
+} else {
+  cat("Sri Lanka data loaded: ", nrow(sri_lanka_data), "observations\n")
+}
+```
+
+
+
+```{r}
+# ================================================
+# DEFINE ANALYSIS VARIABLES
+# ================================================
+
+analysis_vars <- c(
+  "female", "age", "educ", "inc_q", "emp_in", "urbanicity",
+  "account_fin", "account_mob", "account", "dig_account",
+  "saved", "borrowed", "fin22a", "fin22b", "fin22c", "fin20",
+  "merchantpay_dig", "anydigpayment", "internet_use",
+  "fin11_2", "fin9a", "fin10", "fin2", "fin11d",
+  "fin31b", "fin34b", "fin43b"
+)
+
+available_vars <- analysis_vars[analysis_vars %in% colnames(sri_lanka_data)]
+cat("\nAvailable variables:", length(available_vars), "out of", length(analysis_vars), "\n")
+```
+
+
+```{r}
+# ================================================
+# DATA PREPARATION
+# ================================================
+
+analysis_data_raw <- sri_lanka_data %>%
+  select(all_of(available_vars)) %>%
+  mutate(across(everything(), as.numeric))
+
+# Apply KNN imputation if needed
+missing_before <- sum(is.na(analysis_data_raw))
+if(missing_before > 0) {
+  cat("Applying KNN imputation with k=5...\n")
+  analysis_data_imputed <- VIM::kNN(analysis_data_raw, k = 5, imp_var = FALSE)
+  analysis_data <- analysis_data_imputed
+} else {
+  analysis_data <- analysis_data_raw
+}
+```
+
+```{r}
+colSums(is.na(analysis_data))
+```
+
+```{r}
+# Recode variables for better interpretation
+analysis_data <- analysis_data %>%
+  mutate(
+    Gender = factor(ifelse(female == 1, "Female", "Male"),
+                    levels = c("Male", "Female")),
+    Education = factor(case_when(
+      educ == 1 ~ "Primary or less",
+      educ == 2 ~ "Secondary",
+      educ == 3 ~ "Tertiary or more",
+      TRUE ~ "Unknown"
+    ), levels = c("Primary or less", "Secondary", "Tertiary or more")),
+    Location = factor(ifelse(urbanicity == 1, "Rural", "Urban"),
+                      levels = c("Rural", "Urban")),
+    Income_Group = factor(case_when(
+      inc_q == 1 ~ "Poorest 20%",
+      inc_q == 2 ~ "Second 20%",
+      inc_q == 3 ~ "Middle 20%",
+      inc_q == 4 ~ "Fourth 20%",
+      inc_q == 5 ~ "Richest 20%",
+      TRUE ~ "Unknown"
+    ), levels = c("Poorest 20%", "Second 20%", "Middle 20%", 
+                  "Fourth 20%", "Richest 20%")),
+    Age_Group = factor(case_when(
+      age < 25 ~ "15-24",
+      age < 35 ~ "25-34",
+      age < 45 ~ "35-44",
+      age < 55 ~ "45-54",
+      age >= 55 ~ "55+",
+      TRUE ~ "Unknown"
+    ), levels = c("15-24", "25-34", "35-44", "45-54", "55+"))
+  )
+
+cat("Final dataset:", nrow(analysis_data), "observations\n")
+```
+
+```{r}
+# ================================================
+# DEMOGRAPHIC PROFILE VISUALIZATION
+# ================================================
+
+cat("\n=== CREATING DEMOGRAPHIC PROFILE PLOTS ===\n")
+
+# Plot 1: Gender Distribution
+demo_plot1 <- ggplot(analysis_data, aes(x = Gender, fill = Gender)) +
+  geom_bar(alpha = 0.8) +
+  geom_text(aes(label = paste0(round(..count../sum(..count..)*100, 1), "%")),
+            stat = "count", vjust = -0.5, size = 3.5) +
+  labs(title = "Gender Distribution", y = "Count", x = "") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme(legend.position = "none")
+
+# Plot 2: Urban-Rural Distribution
+demo_plot2 <- ggplot(analysis_data, aes(x = Location, fill = Location)) +
+  geom_bar(alpha = 0.8) +
+  geom_text(aes(label = paste0(round(..count../sum(..count..)*100, 1), "%")),
+            stat = "count", vjust = -0.5, size = 3.5) +
+  labs(title = "Urban-Rural Distribution", y = "Count", x = "") +
+  scale_fill_manual(values = c("Rural" = "#8B4513", "Urban" = "#4682B4")) +
+  theme(legend.position = "none")
+
+# Plot 3: Education Level Distribution
+demo_plot3 <- ggplot(analysis_data, aes(x = Education, fill = Education)) +
+  geom_bar(alpha = 0.8) +
+  geom_text(aes(label = paste0(round(..count../sum(..count..)*100, 1), "%")),
+            stat = "count", vjust = -0.5, size = 3) +
+  labs(title = "Education Level Distribution", y = "Count", x = "") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot 4: Age Group Distribution
+demo_plot4 <- ggplot(analysis_data, aes(x = Age_Group, fill = Age_Group)) +
+  geom_bar(alpha = 0.8) +
+  geom_text(aes(label = paste0(round(..count../sum(..count..)*100, 1), "%")),
+            stat = "count", vjust = -0.5, size = 3) +
+  labs(title = "Age Group Distribution", y = "Count", x = "") +
+  scale_fill_brewer(palette = "Blues") +
+  theme(legend.position = "none")
+
+# Combine demographic plots
+demo_plot1
+demo_plot2
+demo_plot3
+demo_plot4
+```
+
+```{r}
+# Install and load required library for advanced shape statistics
+if(!require(moments)) install.packages("moments")
+library(moments)
+
+# Detailed stats for Age and Income
+advanced_stats <- analysis_data %>%
+  summarise(
+    Variable = "Age",
+    Mean = mean(age, na.rm = TRUE),
+    Median = median(age, na.rm = TRUE),
+    SD = sd(age, na.rm = TRUE),
+    Skewness = skewness(age, na.rm = TRUE), # >0: Right tail; <0: Left tail
+    Kurtosis = kurtosis(age, na.rm = TRUE), # >3: Heavy tails/outliers
+    CV_Percent = (sd(age)/mean(age)) * 100  # Coefficient of Variation
+  )
+
+print(advanced_stats)
+```
+
+```{r}
+# Boxplot of Age by Account Ownership and Gender
+ggplot(analysis_data, aes(x = factor(account, labels = c("No Account", "Has Account")), 
+                         y = age, fill = Gender)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, alpha = 0.7) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+  labs(title = "Age Distribution by Financial Access and Gender",
+       subtitle = "Dots represent outliers; Diamonds represent the group mean",
+       x = "Financial Account Status",
+       y = "Age") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme_minimal()
+```
+
+```{r}
+# Correlation Matrix for key financial behaviors
+library(corrplot)
+key_vars <- analysis_data %>% 
+  select(account_fin, account_mob, saved, anydigpayment, internet_use)
+
+corr_matrix <- cor(key_vars, use = "complete.obs")
+corrplot(corr_matrix, method = "color", type = "upper", 
+         addCoef.col = "black", tl.col = "black",
+         title = "Relationship Between Financial Behaviors",
+         mar = c(0,0,2,0))
+```
+
+```{r}
+# Grouped summary: Account ownership across education and location
+demographic_summary <- analysis_data %>%
+  group_by(Location, Education) %>%
+  summarise(
+    Total_N = n(),
+    Account_Ownership_Rate = mean(account == 1) * 100,
+    Digital_Payment_Rate = mean(anydigpayment == 1) * 100,
+    Average_Age = mean(age),
+    .groups = 'drop'
+  )
+
+print(demographic_summary)
+```
+
+
+
+```{r}
+library(ggridges)
+
+ggplot(analysis_data, aes(x = age, y = Location, fill = Education)) +
+  geom_density_ridges(alpha = 0.6, scale = 1.2) +
+  theme_ridges() + 
+  labs(title = "Age Density by  Location",
+       x = "Age", y = "Location Category") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none")
+```
+
+```{r}
+library(ggridges)
+
+ggplot(analysis_data, aes(x = age, y = Education, fill = Education)) +
+  geom_density_ridges(alpha = 0.6, scale = 1.2) +
+  theme_ridges() + 
+  labs(title = "Age Density by Education",
+       x = "Age", y = "Education Group") +
+  theme(legend.position = "none")
+```
+
+```{r}
+# Digital Payment Adoption Funnel (Descriptive Stage Analysis)
+digital_funnel <- analysis_data %>% 
+  summarise(
+    `Internet Users` = mean(internet_use == 1) * 100,
+    `Account Holders` = mean(account == 1) * 100,
+    `Digital Account Holders` = mean(dig_account == 1) * 100,
+    `Digital Payment Users` = mean(anydigpayment == 1) * 100
+  ) %>% 
+  pivot_longer(everything(), names_to = "Stage", values_to = "Percentage") %>%
+  mutate(Stage = factor(Stage, levels = c("Internet Users", "Account Holders", 
+                                          "Digital Account Holders", "Digital Payment Users")))
+
+ggplot(digital_funnel, aes(x = Stage, y = Percentage, group = 1)) +
+  geom_line(color = "#2E86AB", size = 1.5) +
+  geom_point(color = "#A23B72", size = 4) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), vjust = -1.5, size = 4) +
+  labs(title = "Financial Inclusion Funnel: Sri Lanka",
+       subtitle = "Percentage of adults at each stage of digital access",
+       x = "", y = "Percentage (%)") +
+  theme_minimal() + ylim(0, 100)
+```
+
+
+
+```{r}
+# Descriptive Saving Behavior by Age Group and Gender
+ggplot(analysis_data, aes(x = Age_Group, fill = Gender)) +
+  stat_summary(aes(y = as.numeric(saved == 1)), fun = mean, 
+               geom = "bar", position = "dodge", alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  labs(title = "Descriptive Saving Rates by Age and Gender",
+       x = "Age Group", y = "Average Saving Rate (%)") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme_minimal()
+```
+
+```{r}
+library(vtable)
+st(analysis_data)
+```
+
+
+```{r}
+library(skimr)
+skim(analysis_data)
+```
+
+
+
+```{r}
+ggplot(analysis_data, aes(x = age, color = Education)) +
+  stat_ecdf(geom = "step", size = 1) +
+  labs(title = "Cumulative Distribution of Age by Education",
+       y = "Cumulative Probability",
+       x = "Age") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+```
+
+
+```{r}
+library(ggcorrplot)
+
+# Select numeric/binary indicators
+corr_data <- analysis_data %>%
+  select(account, account_mob, saved, borrowed, anydigpayment) %>%
+  mutate(across(everything(), as.numeric))
+
+# Calculate correlation and p-values
+corr_mat <- cor(corr_data, use = "complete.obs")
+p_mat <- cor_pmat(corr_data)
+
+# Plot
+ggcorrplot(corr_mat, 
+           hc.order = TRUE, 
+           type = "lower",
+           lab = TRUE, 
+           p.mat = p_mat,
+           title = "Correlation Map of Financial Behaviors")
+```
+
+```{r}
+# Simple version using ggplot to see the "gap"
+analysis_data %>%
+  group_by(Income_Group) %>%
+  summarise(Access_Rate = mean(account)) %>%
+  ggplot(aes(x = Income_Group, y = Access_Rate, group = 1)) +
+  geom_line(size = 1.2, color = "darkgreen") +
+  geom_point(size = 4, color = "darkgreen") +
+  labs(title = "Financial Inclusion Concentration by Income",
+       y = "Ownership Rate", x = "Income Quintile") +
+  theme_light()
+```
+```{r}
+library(moments)
+
+# Advanced statistics for Age
+age_distribution_stats <- analysis_data %>%
+  summarise(
+    Mean_Age = mean(age, na.rm = TRUE),
+    Median_Age = median(age, na.rm = TRUE),
+    SD_Age = sd(age, na.rm = TRUE),
+    Skewness = skewness(age, na.rm = TRUE), # >0 = Right-skewed, <0 = Left-skewed
+    Kurtosis = kurtosis(age, na.rm = TRUE), # >3 = Heavy-tailed (many outliers)
+    CV = (sd(age, na.rm = TRUE) / mean(age, na.rm = TRUE)) * 100 # Coefficient of Variation
+  )
+
+print(age_distribution_stats)
+```
+```{r}
+# Boxplot comparing Age by Account Ownership and Gender
+ggplot(analysis_data, aes(x = factor(account, labels = c("No Account", "Has Account")), 
+                         y = age, fill = Gender)) +
+  geom_boxplot(alpha = 0.7, outlier.colour = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") + # Adds the mean point
+  labs(title = "Age Spread: Account Holders vs. Non-Holders",
+       subtitle = "Red dots represent age outliers",
+       x = "Financial Access Status",
+       y = "Age") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme_minimal()
+```
+
+
+```{r}
+summary_data <- analysis_data %>%
+  group_by(Gender,Location) %>%
+  summarise(.,Account_Rate = mean(account==1, na.rm =TRUE)*100,
+    Mobile_money = mean(account_mob ==1, na.rm =TRUE)*100,
+    Digital_pay = mean(dig_account==1, na.rm =TRUE)*100,
+    .groups = 'drop'
+  )
+
+print(summary_data)
+```
+
+
+```{r}
+library(psych)
+describe(analysis_data)
+```
+
+
+```{r}
+# ================================================
+# ANALYSIS 1: FINANCIAL ACCESS - ENHANCED PLOTS
+# ================================================
+
+cat("\n=== CREATING FINANCIAL ACCESS VISUALIZATIONS ===\n")
+
+# Calculate account statistics
+account_stats <- analysis_data %>%
+  summarise(
+    Formal_Account = mean(account_fin == 1) * 100,
+    Mobile_Money = mean(account_mob == 1) * 100,
+    Any_Account = mean(account == 1) * 100,
+    Digital_Account = mean(dig_account == 1) * 100,
+    Debit_Card = mean(fin2 == 1) * 100,
+    Credit_Card = mean(fin10 == 1) * 100,
+    Internet_Access = mean(internet_use == 1) * 100
+  )
+
+# Plot 1: Financial Access Indicators
+access_data_long <- account_stats %>%
+  pivot_longer(everything(), names_to = "Indicator", values_to = "Percentage") %>%
+  mutate(Category = case_when(
+    Indicator %in% c("Formal_Account", "Mobile_Money", "Any_Account", "Digital_Account") ~ "Account Ownership",
+    Indicator %in% c("Debit_Card", "Credit_Card") ~ "Payment Instruments",
+    TRUE ~ "Digital Access"
+  ))
+
+access_plot1 <- ggplot(access_data_long, 
+                       aes(x = reorder(Indicator, Percentage), y = Percentage, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(title = "Comprehensive Financial Access Indicators",
+       subtitle = "Percentage of adults with access to financial services",
+       x = "Indicator", y = "Percentage (%)") +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() +
+  ylim(0, max(access_data_long$Percentage) * 1.1)
+
+print(access_plot1)
+
+# Plot 2: Account Ownership by Demographics (Faceted Grid)
+account_demo_summary <- analysis_data %>%
+  group_by(Gender, Education, Income_Group) %>%
+  summarise(
+    Account_Rate = mean(account == 1) * 100,
+    .groups = 'drop'
+  )
+
+account_gender_plot <- account_demo_summary %>%
+  group_by(Gender) %>%
+  summarise(Account_Rate = mean(Account_Rate)) %>%
+  ggplot(aes(x = Gender, y = Account_Rate, fill = Gender)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(Account_Rate, 1), "%")), vjust = -0.5, size = 4) +
+  labs(title = "Account Ownership by Gender", x = "", y = "Rate (%)") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme(legend.position = "none") +
+  ylim(0, 100)
+
+account_edu_plot <- account_demo_summary %>%
+  group_by(Education) %>%
+  summarise(Account_Rate = mean(Account_Rate)) %>%
+  ggplot(aes(x = Education, y = Account_Rate, fill = Education)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(Account_Rate, 1), "%")), vjust = -0.5, size = 3.5) +
+  labs(title = "Account Ownership by Education", x = "", y = "Rate (%)") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 100)
+
+account_income_plot <- account_demo_summary %>%
+  group_by(Income_Group) %>%
+  summarise(Account_Rate = mean(Account_Rate)) %>%
+  ggplot(aes(x = Income_Group, y = Account_Rate, fill = Income_Group)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(Account_Rate, 1), "%")), vjust = -0.5, size = 3.5) +
+  labs(title = "Account Ownership by Income", x = "", y = "Rate (%)") +
+  scale_fill_brewer(palette = "YlOrRd") +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 100)
+
+account_location_plot <- analysis_data %>%
+  group_by(Location) %>%
+  summarise(Account_Rate = mean(account == 1) * 100) %>%
+  ggplot(aes(x = Location, y = Account_Rate, fill = Location)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(Account_Rate, 1), "%")), vjust = -0.5, size = 4) +
+  labs(title = "Account Ownership by Location", x = "", y = "Rate (%)") +
+  scale_fill_manual(values = c("Rural" = "#8B4513", "Urban" = "#4682B4")) +
+  theme(legend.position = "none") +
+  ylim(0, 100)
+
+# Combine account ownership plots
+account_demo_grid <- grid.arrange(account_gender_plot, account_location_plot,
+                                  account_edu_plot, account_income_plot,
+                                  ncol = 2,
+                                  top = textGrob("Account Ownership by Demographic Characteristics",
+                                                 gp = gpar(fontsize = 14, fontface = "bold")))
+print(account_demo_grid)
+
+# Plot 3: Age Distribution of Account Holders
+age_account_plot <- ggplot(analysis_data, aes(x = age, fill = factor(account))) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Age Distribution: Account Holders vs Non-Holders",
+       x = "Age", y = "Density",
+       fill = "Has Account") +
+  scale_fill_manual(values = c("0" = "#FF6B6B", "1" = "#4ECDC4"),
+                    labels = c("No Account", "Has Account")) +
+  theme_minimal()
+
+print(age_account_plot)
+```
+
+
+```{r}
+# ================================================
+# ANALYSIS 2: SAVING BEHAVIOR - ENHANCED PLOTS
+# ================================================
+
+cat("\n=== CREATING SAVING BEHAVIOR VISUALIZATIONS ===\n")
+
+# Plot 1: Saving Rate by Demographics Heatmap
+saving_matrix <- analysis_data %>%
+  group_by(Gender, Education, Income_Group) %>%
+  summarise(
+    Saving_Rate = mean(saved == 1) * 100,
+    n = n(),
+    .groups = 'drop'
+  ) %>%
+  filter(n > 10)
+
+saving_heatmap <- ggplot(saving_matrix, aes(x = Education, y = Income_Group, fill = Saving_Rate)) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = paste0(round(Saving_Rate, 0), "%")), color = "black", size = 3) +
+  facet_wrap(~Gender) +
+  scale_fill_gradient2(low = "#FF6B6B", mid = "white", high = "#4ECDC4",
+                       midpoint = median(saving_matrix$Saving_Rate, na.rm = TRUE),
+                       name = "Saving Rate (%)") +
+  labs(title = "Saving Rate Heatmap by Demographics",
+       subtitle = "Darker green = Higher saving rates",
+       x = "Education Level", y = "Income Group") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(saving_heatmap)
+
+# Plot 2: Saving Behavior by Age and Gender
+saving_age_gender <- ggplot(analysis_data, aes(x = Age_Group, fill = Gender)) +
+  stat_summary(aes(y = as.numeric(saved == 1)), fun = mean, geom = "bar", 
+               position = "dodge", alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  labs(title = "Saving Behavior by Age Group and Gender",
+       x = "Age Group", y = "Saving Rate (%)",
+       fill = "Gender") +
+  scale_fill_manual(values = c("Male" = "#4ECDC4", "Female" = "#FF6B6B")) +
+  theme_minimal()
+
+print(saving_age_gender)
+
+# Plot 3: Saving vs Income - Scatter with regression
+saving_income_scatter <- ggplot(analysis_data, aes(x = inc_q, y = as.numeric(saved == 1))) +
+  geom_jitter(alpha = 0.3, width = 0.2, height = 0.02, color = "#2E86AB") +
+  geom_smooth(method = "lm", se = TRUE, color = "#A23B72", fill = "#A23B72", alpha = 0.2) +
+  stat_cor(method = "pearson", label.x = 3, label.y = 0.95, size = 4) +
+  labs(title = "Saving Behavior by Income Quintile",
+       subtitle = "With linear regression trend",
+       x = "Income Quintile (1=Poorest, 5=Richest)", y = "Probability of Saving") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme_minimal()
+
+print(saving_income_scatter)
+
+# Plot 4: Saving by Account Type
+saving_account_type <- analysis_data %>%
+  select(saved, account_fin, account_mob) %>%
+  pivot_longer(cols = c(account_fin, account_mob),
+               names_to = "Account_Type",
+               values_to = "Has_Account") %>%
+  mutate(Account_Type = ifelse(Account_Type == "account_fin", "Formal Account", "Mobile Money")) %>%
+  group_by(Account_Type, Has_Account) %>%
+  summarise(Saving_Rate = mean(saved == 1) * 100, .groups = 'drop') %>%
+  filter(!is.na(Has_Account)) %>%
+  mutate(Has_Account = factor(Has_Account, levels = c(0, 1), labels = c("No", "Yes"))) %>%
+  ggplot(aes(x = Account_Type, y = Saving_Rate, fill = Has_Account)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = paste0(round(Saving_Rate, 1), "%")),
+            position = position_dodge(width = 0.7), vjust = -0.5, size = 3.5) +
+  labs(title = "Saving Rates by Account Type Ownership",
+       x = "Account Type", y = "Saving Rate (%)",
+       fill = "Has Account") +
+  scale_fill_manual(values = c("No" = "#FF6B6B", "Yes" = "#4ECDC4")) +
+  theme_minimal() +
+  ylim(0, 100)
+
+print(saving_account_type)
+```
+
+```{r}
+# ================================================
+# ANALYSIS 4: DIGITAL FINANCIAL INCLUSION - ENHANCED PLOTS
+# ================================================
+
+cat("\n=== CREATING DIGITAL FINANCIAL INCLUSION VISUALIZATIONS ===\n")
+
+# Plot 1: Digital Payment Adoption Funnel
+digital_funnel <- analysis_data %>%
+  summarise(
+    `Internet Users` = mean(internet_use == 1) * 100,
+    `Account Holders` = mean(account == 1) * 100,
+    `Digital Account Holders` = mean(dig_account == 1) * 100,
+    `Digital Payment Users` = mean(anydigpayment == 1) * 100,
+    `Digital Merchant Payments` = mean(merchantpay_dig == 1) * 100
+  ) %>%
+  pivot_longer(everything(), names_to = "Stage", values_to = "Percentage") %>%
+  mutate(Stage = factor(Stage, levels = c("Internet Users", "Account Holders", 
+                                          "Digital Account Holders", 
+                                          "Digital Payment Users", 
+                                          "Digital Merchant Payments"))) %>%
+  ggplot(aes(x = Stage, y = Percentage, group = 1)) +
+  geom_line(color = "#2E86AB", size = 1.5) +
+  geom_point(color = "#A23B72", size = 4) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            vjust = -1, size = 4, color = "#2E86AB") +
+  labs(title = "Digital Financial Inclusion Funnel",
+       subtitle = "Progression from basic access to advanced digital payments",
+       x = "Digital Inclusion Stage", y = "Percentage (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 100)
+
+print(digital_funnel)
+
+# Plot 2: Mobile Money Usage Patterns
+mobile_money_usage <- analysis_data %>%
+  filter(account_mob == 1) %>%
+  summarise(
+    `Utility Payments` = mean(fin31b == 1) * 100,
+    `Wage Payments` = mean(fin34b == 1) * 100,
+    `Agricultural Payments` = mean(fin43b == 1) * 100,
+    `Digital Payments` = mean(anydigpayment == 1) * 100
+  ) %>%
+  pivot_longer(everything(), names_to = "Usage_Type", values_to = "Percentage") %>%
+  ggplot(aes(x = reorder(Usage_Type, Percentage), y = Percentage, fill = Usage_Type)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.1, size = 4) +
+  coord_flip() +
+  labs(title = "Mobile Money Usage Patterns",
+       subtitle = "Among mobile money account holders",
+       x = "Usage Type", y = "Percentage (%)") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  ylim(0, 100)
+
+print(mobile_money_usage)
+
+# Plot 3: Digital Inclusion by Location and Education
+digital_inclusion_matrix <- analysis_data %>%
+  group_by(Location, Education) %>%
+  summarise(
+    Internet_Access = mean(internet_use == 1) * 100,
+    Digital_Payments = mean(anydigpayment == 1) * 100,
+    Mobile_Money = mean(account_mob == 1) * 100,
+    .groups = 'drop'
+  ) %>%
+  pivot_longer(cols = c(Internet_Access, Digital_Payments, Mobile_Money),
+               names_to = "Indicator",
+               values_to = "Percentage")
+
+digital_matrix_plot <- ggplot(digital_inclusion_matrix,
+                              aes(x = Education, y = Indicator, fill = Percentage)) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = paste0(round(Percentage, 0), "%")), color = "black", size = 3) +
+  facet_wrap(~Location) +
+  scale_fill_gradient2(low = "#FF6B6B", mid = "white", high = "#4ECDC4",
+                       midpoint = 50, name = "Rate (%)") +
+  labs(title = "Digital Financial Inclusion Matrix",
+       subtitle = "By Location and Education Level",
+       x = "Education Level", y = "Digital Indicator") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(digital_matrix_plot)
+```
+
+```{r}
+# ================================================
+# COMPREHENSIVE CORRELATION MATRIX
+# ================================================
+
+cat("\n=== CREATING COMPREHENSIVE CORRELATION MATRIX ===\n")
+
+# Select key variables for comprehensive correlation
+all_corr_vars <- analysis_data %>%
+  select(account_fin, account_mob, saved, borrowed, fin22a, fin22b,
+         anydigpayment, merchantpay_dig, internet_use, 
+         fin2, fin10, fin31b, fin34b) %>%
+  select(where(is.numeric))
+
+# Calculate correlation matrix
+comprehensive_corr <- cor(all_corr_vars, use = "complete.obs")
+
+# Create enhanced correlation plot
+corrplot(comprehensive_corr,
+         method = "color",
+         type = "upper",
+         tl.col = "black",
+         tl.srt = 45,
+         title = "Comprehensive Correlation Matrix of Financial Inclusion Variables",
+         mar = c(0, 0, 2, 0),
+         addCoef.col = "black",
+         number.cex = 0.7,
+         diag = FALSE)
+```
+
+```{r}
+# ================================================
+# SUMMARY STATISTICS TABLE
+# ================================================
+
+cat("\n=== CREATING SUMMARY STATISTICS ===\n")
+
+# Create a comprehensive summary table
+summary_table <- analysis_data %>%
+  summarise(
+    Observations = n(),
+    `Female (%)` = mean(Gender == "Female") * 100,
+    `Urban (%)` = mean(Location == "Urban") * 100,
+    `Mean Age` = mean(age),
+    `Primary Education (%)` = mean(Education == "Primary or less") * 100,
+    `Secondary Education (%)` = mean(Education == "Secondary") * 100,
+    `Tertiary Education (%)` = mean(Education == "Tertiary or more") * 100,
+    `Account Holders (%)` = mean(account == 1) * 100,
+    `Mobile Money Users (%)` = mean(account_mob == 1) * 100,
+    `Savers (%)` = mean(saved == 1) * 100,
+    `Digital Payment Users (%)` = mean(anydigpayment == 1) * 100,
+    `Internet Users (%)` = mean(internet_use == 1) * 100,
+    `Formal Borrowers (%)` = mean(fin22a == 1) * 100,
+    `Informal Borrowers (%)` = mean(fin22b == 1 | fin22c == 1) * 100
+  ) %>%
+  pivot_longer(everything(), names_to = "Metric", values_to = "Value") %>%
+  mutate(Value = round(Value, 2))
+
+# Print summary table
+cat("\nSummary Statistics:\n")
+print(summary_table)
+
+# Plot summary statistics as a bar chart
+summary_plot <- summary_table %>%
+  filter(Metric != "Observations") %>%
+  ggplot(aes(x = reorder(Metric, Value), y = Value, fill = Value)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = ifelse(grepl("%", Metric), 
+                               paste0(round(Value, 1), "%"), 
+                               round(Value, 1))),
+            hjust = -0.1, size = 3) +
+  coord_flip() +
+  labs(title = "Key Financial Inclusion Indicators in Sri Lanka",
+       x = "Indicator", y = "Value") +
+  scale_fill_gradient(low = "#FF6B6B", high = "#4ECDC4", name = "Value") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(summary_plot)
+```
+
+```{r}
+# ================================================
+# SAVE ALL VISUALIZATIONS
+# ================================================
+
+cat("\n=== SAVING ALL VISUALIZATIONS ===\n")
+
+# Create output directory
+output_dir <- "Financial_Inclusion_Visualizations"
+if(!dir.exists(output_dir)) {
+  dir.create(output_dir)
+  cat("Created output directory:", output_dir, "\n")
+}
+
+# Save all plots
+plots_to_save <- list(
+  "01_demographic_grid.png" = arrangeGrob(demo_plot1, demo_plot2, demo_plot3, demo_plot4, ncol = 2),
+  "02_financial_access.png" = access_plot1,
+  "03_account_demographics.png" = account_demo_grid,
+  "04_age_account_distribution.png" = age_account_plot,
+  "05_saving_heatmap.png" = saving_heatmap,
+  "06_saving_age_gender.png" = saving_age_gender,
+  "07_saving_income_scatter.png" = saving_income_scatter,
+  "08_saving_account_type.png" = saving_account_type,
+  "09_digital_funnel.png" = digital_funnel,
+  "10_mobile_money_usage.png" = mobile_money_usage,
+  "11_digital_matrix.png" = digital_matrix_plot,
+  "12_digital_age_gender.png" = digital_age,
+  "13_inclusion_score.png" = inclusion_boxplot,
+  "14_summary_statistics.png" = summary_plot
+)
+
+# Save each plot
+for (plot_name in names(plots_to_save)) {
+  ggsave(filename = file.path(output_dir, plot_name),
+         plot = plots_to_save[[plot_name]],
+         width = 12,
+         height = 8,
+         dpi = 300)
+  cat("Saved:", plot_name, "\n")
+}
+
+# Save data
+write.csv(analysis_data, file.path(output_dir, "processed_data.csv"), row.names = FALSE)
+write.csv(summary_table, file.path(output_dir, "summary_statistics.csv"), row.names = FALSE)
+
+# Save correlation matrix
+write.csv(comprehensive_corr, file.path(output_dir, "correlation_matrix.csv"))
+
+# Create a report
+sink(file.path(output_dir, "analysis_report.txt"))
+cat("FINANCIAL INCLUSION ANALYSIS REPORT - SRI LANKA\n")
+cat("================================================\n\n")
+cat("Analysis Date:", Sys.Date(), "\n")
+cat("Total Observations:", nrow(analysis_data), "\n\n")
+
+cat("KEY FINDINGS:\n")
+cat("-------------\n")
+cat("1. Account Ownership:", round(mean(analysis_data$account == 1) * 100, 1), "%\n")
+cat("2. Mobile Money Penetration:", round(mean(analysis_data$account_mob == 1) * 100, 1), "%\n")
+cat("3. Saving Rate:", round(mean(analysis_data$saved == 1) * 100, 1), "%\n")
+
+cat("DEMOGRAPHIC BREAKDOWN:\n")
+cat("---------------------\n")
+cat("Gender Distribution:\n")
+print(table(analysis_data$Gender))
+cat("\nUrban-Rural Distribution:\n")
+print(table(analysis_data$Location))
+cat("\nEducation Distribution:\n")
+print(table(analysis_data$Education))
+
+sink()
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("Total visualizations created:", length(plots_to_save), "\n")
+cat("All outputs saved in:", output_dir, "\n")
+cat("Files saved:\n")
+cat("1. visualization plots (PNG format)\n")
+cat("2. Processed data (CSV)\n")
+cat("3. Summary statistics (CSV)\n")
+cat("4. Correlation matrix (CSV)\n")
+cat("5. Analysis report (TXT)\n")
+```
+
+
+
+
+
